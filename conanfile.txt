@@ -1,0 +1,7 @@
+[requires]
+rapidjson/cci.20200410
+gtest/cci.20210126
+benchmark/1.6.0
+
+[generators]
+cmake

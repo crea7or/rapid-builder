@@ -1,7 +1,7 @@
 # NEAT JSON BUILDER for RAPIDJSON
 
 Rapid builder allows you to create JSON in a nice and readable way, thanks to c++11 feature - std::initializer_list. You may create std::string, rapidjson::Document, or rapidjson::Value with three easy API calls: BuildJson, BuildValue, or BuildDocument.
-Rapid builder requires c++17 due to std::string_view usage. The builder is even faster than direct use of regular rapidjson API due to std::initializer_list and constexpr strlen in std::string_view by 14%.
+Rapid builder requires c++17 due to std::string_view usage.
 
 Example json:
 ```json
@@ -35,7 +35,7 @@ Rapid builder code:
       }});
 ```
 
-The same json build code with plain rapidjson API:
+The same json build code with regular rapidjson API:
 ```c++
 rapidjson::Document doc;
 auto& allocator = doc.GetAllocator();
@@ -54,12 +54,39 @@ doc.AddMember("validation-factors", arr, allocator);
 rapidjson::StringBuffer buffer;
 rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
 doc.Accept(writer);
-const auto json = buffer.GetString();
+const std::string json(buffer.GetString(), buffer.Size());
+```
+
+The same json build code with writer rapidjson API:
+```c++
+rapidjson::StringBuffer string_buffer;
+rapidjson::Writer<rapidjson::StringBuffer> writer(string_buffer);
+writer.StartObject();
+writer.Key("username");
+writer.String("my_username");
+writer.Key("password");
+writer.String("my_password");
+writer.Key("validation-factors");
+writer.StartArray();
+writer.StartObject();
+writer.Key("name");
+writer.String("remote_address");
+writer.Key("value");
+writer.String("127.0.0.1");
+writer.EndObject();
+writer.StartObject();
+writer.Key("name");
+writer.String("remote_port");
+writer.Key("value");
+writer.Int(3333);
+writer.EndObject();
+writer.EndArray();
+const std::string json(string_buffer.GetString(), string_buffer.Size());
 ```
 
 So I think that you get the point of Rapid Builder.
 
-Even more complex things possible:
+Even more complex things possible with Rapid Builder:
 ```c++
   std::vector<int> values{1,2,3,4};
   const auto rapid_json_object = 
@@ -92,68 +119,36 @@ make
 
 ## Google benchmark
 
-BM_JsonBuilderCreate - This builder. BM_RapidJsonCreate - direct use rapidjson API to build the json.
+```
+BM_RapidbuilderCreateJson - This builder, create json text.
+BM_RapidjsonCreateJson - Regular rapidjson API, create json text.
+BM_RapidjsonWriterCreateJson - Writer rapidjson API, create json text.
+BM_RapidbuilderCreateDocument - This builder, create json object to continue work with.
+BM_RapidjsonCreateDocument - Regular rapidjson API, create json object to continue work with.
+```
 
 ### GCC 9
 ```
 ----------------------------------------------------------------------
 Benchmark                            Time             CPU   Iterations
 ----------------------------------------------------------------------
-BM_JsonBuilderCreate               782 ns          767 ns       896000
-BM_JsonBuilderCreate               761 ns          767 ns       896000
-BM_JsonBuilderCreate               750 ns          750 ns       896000
-BM_JsonBuilderCreate               759 ns          767 ns       896000
-BM_JsonBuilderCreate               760 ns          750 ns       896000
-BM_JsonBuilderCreate               799 ns          802 ns       896000
-BM_JsonBuilderCreate               797 ns          802 ns       896000
-BM_JsonBuilderCreate               799 ns          802 ns       896000
-BM_JsonBuilderCreate_mean          776 ns          776 ns            8
-BM_JsonBuilderCreate_median        771 ns          767 ns            8
-BM_JsonBuilderCreate_stddev       20.7 ns         22.8 ns            8
-BM_JsonBuilderCreate_cv           2.67 %          2.94 %             8
-BM_RapidJsonCreate                 882 ns          879 ns       746667
-BM_RapidJsonCreate                 892 ns          900 ns       746667
-BM_RapidJsonCreate                 914 ns          921 ns       746667
-BM_RapidJsonCreate                 894 ns          879 ns       746667
-BM_RapidJsonCreate                 893 ns          900 ns       746667
-BM_RapidJsonCreate                 895 ns          900 ns       746667
-BM_RapidJsonCreate                 902 ns          900 ns       746667
-BM_RapidJsonCreate                 895 ns          900 ns       746667
-BM_RapidJsonCreate_mean            896 ns          897 ns            8
-BM_RapidJsonCreate_median          894 ns          900 ns            8
-BM_RapidJsonCreate_stddev         9.27 ns         13.4 ns            8
-BM_RapidJsonCreate_cv             1.03 %          1.49 %             8
+BM_RapidbuilderCreateJson            753 ns          750 ns       896000
+BM_RapidjsonCreateJson               893 ns          879 ns       746667
+BM_RapidjsonWriterCreateJson         686 ns          684 ns      1120000
+BM_RapidbuilderCreateDocument        348 ns          353 ns      2036364
+BM_RapidjsonCreateDocument           195 ns          197 ns      3733333
 ```
 
 ### Visual studio 2019 
 ```
-----------------------------------------------------------------------
-Benchmark                            Time             CPU   Iterations
-----------------------------------------------------------------------
-BM_JsonBuilderCreate              1667 ns         1688 ns       407273
-BM_JsonBuilderCreate              1672 ns         1650 ns       407273
-BM_JsonBuilderCreate              1665 ns         1688 ns       407273
-BM_JsonBuilderCreate              1668 ns         1650 ns       407273
-BM_JsonBuilderCreate              1669 ns         1688 ns       407273
-BM_JsonBuilderCreate              1672 ns         1650 ns       407273
-BM_JsonBuilderCreate              1665 ns         1688 ns       407273
-BM_JsonBuilderCreate              1668 ns         1650 ns       407273
-BM_JsonBuilderCreate_mean         1668 ns         1669 ns            8
-BM_JsonBuilderCreate_median       1668 ns         1669 ns            8
-BM_JsonBuilderCreate_stddev       2.67 ns         20.5 ns            8
-BM_JsonBuilderCreate_cv           0.16 %          1.23 %             8
-BM_RapidJsonCreate                1923 ns         1925 ns       373333
-BM_RapidJsonCreate                1925 ns         1925 ns       373333
-BM_RapidJsonCreate                1911 ns         1925 ns       373333
-BM_RapidJsonCreate                1902 ns         1883 ns       373333
-BM_RapidJsonCreate                1909 ns         1925 ns       373333
-BM_RapidJsonCreate                1901 ns         1883 ns       373333
-BM_RapidJsonCreate                1912 ns         1925 ns       373333
-BM_RapidJsonCreate                1896 ns         1883 ns       373333
-BM_RapidJsonCreate_mean           1910 ns         1910 ns            8
-BM_RapidJsonCreate_median         1910 ns         1925 ns            8
-BM_RapidJsonCreate_stddev         10.3 ns         21.7 ns            8
-BM_RapidJsonCreate_cv             0.54 %          1.13 %             8
+------------------------------------------------------------------------
+Benchmark                              Time             CPU   Iterations
+------------------------------------------------------------------------
+BM_RapidbuilderCreateJson           1575 ns         1569 ns       448000
+BM_RapidjsonCreateJson              1829 ns         1800 ns       373333
+BM_RapidjsonWriterCreateJson        1213 ns         1200 ns       560000
+BM_RapidbuilderCreateDocument        686 ns          698 ns      1120000
+BM_RapidjsonCreateDocument           426 ns          424 ns      1659259
 ```
 
 MIT License

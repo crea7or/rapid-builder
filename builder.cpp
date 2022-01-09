@@ -162,7 +162,7 @@ std::string stringify(const rapidjson::Document& document) {
   rapidjson::StringBuffer buffer;
   rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
   document.Accept(writer);
-  return buffer.GetString();
+  return std::string(buffer.GetString(), buffer.GetSize());
 }
 
 builder::array_holder array(std::initializer_list<builder::value_holder> list) {
@@ -179,7 +179,7 @@ std::string build(const builder::value_holder& value) {
   // recursive builder
   RecursiveJsonBuilder(writer, value);
   // get the json string and return it
-  return string_buffer.GetString();
+  return std::string(string_buffer.GetString(), string_buffer.GetSize());
 }
 
 /**

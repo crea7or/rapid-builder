@@ -84,7 +84,7 @@ writer.EndArray();
 const std::string json(string_buffer.GetString(), string_buffer.Size());
 ```
 
-So I think that you get the point of Rapid Builder.
+So I think that you get the point of Rapid Builder. Nlohmann JSON library uses the same way to build JSON and I have added it to the benchmark section.
 
 Even more complex things possible with Rapid Builder:
 ```c++
@@ -169,5 +169,22 @@ BM_NlohmannCreateDocument           9259 ns         9208 ns        74667
 BM_RapidjsonCreateDocument           849 ns          837 ns       746667
 ```
 
+## How to use
+
+Copy `builder.h` and `builder.cpp` into your project and use.
+
 MIT License
 Copyright (c) 2022 pavel.sokolov@gmail.com / CEZEO software Ltd.. All rights reserved.
+
+```
+      .:+oooooooooooooooooooooooooooooooooooooo: `/ooooooooooo/` :ooooo+/-`
+   `+dCEZEOCEZEOCEZEOCEZEOCEZEOCEZEOCEZEOCEZEOEZshCEZEOCEZEOEZ#doCEZEOEZEZNs.
+  :CEZEON#ddddddddddddddddddddddddddddddNCEZEO#h.:hdddddddddddh/.yddddCEZEO#N+
+ :NEZ#N+.        .-----------.`       `+CEZEOd/   .-----------.        `:CEZEO/
+ hEZEZ/         :CEZEOCEZEOEZNd.    `/dCEZEO+`   sNCEZEOCEZEO#Ny         -CEZEO
+ hEZEZ/         :#NCEZEOCEZEONd.   :hEZEZNo`     oNCEZEOCEZEO#Ny         -CEZEO
+ :NEZ#No.`       `-----------.`  -yNEZ#Ns.       `.-----------.`       `/CEZEO/
+  :CEZEONCEZEOd/.ydCEZEOCEZEOdo.sNCEZEOCEZEOCEZEOCEZEOCEZEOCEZEOCEZEOEZNEZEZN+
+   `+dCEZEOEZEZdoCEZEOCEZEOEZ#N+CEZEOCEZEOCEZEOCEZEOCEZEOCEZEOCEZEOCEZEOEZ#s.
+      .:+ooooo/` :+oooooooooo+. .+ooooooooooooooooooooooooooooooooooooo+/.
+```

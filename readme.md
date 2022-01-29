@@ -122,34 +122,52 @@ make
 ```
 BM_RapidbuilderCreateJson - This builder, create json text.
 BM_RapidjsonCreateJson - Regular rapidjson API, create json text.
+BM_NlohmannCreateJson - Nlohmann JSON library, create json text.
 BM_RapidjsonWriterCreateJson - Writer rapidjson API, create json text.
 BM_RapidbuilderCreateDocument - This builder, create json object to continue work with.
+BM_NlohmannCreateDocument - Nlohmann JSON library, create json object to continue work with.
 BM_RapidjsonCreateDocument - Regular rapidjson API, create json object to continue work with.
 ```
 
 ### GCC 9
 ```
-----------------------------------------------------------------------
-Benchmark                            Time             CPU   Iterations
-----------------------------------------------------------------------
-BM_RapidbuilderCreateJson            753 ns          750 ns       896000
-BM_RapidjsonCreateJson               893 ns          879 ns       746667
-BM_RapidjsonWriterCreateJson         686 ns          684 ns      1120000
-BM_RapidbuilderCreateDocument        348 ns          353 ns      2036364
-BM_RapidjsonCreateDocument           195 ns          197 ns      3733333
+2022-01-29T14:07:48+03:00
+Running ./bench
+Run on (20 X 3600 MHz CPU s)
+Load Average: 0.52, 0.58, 0.59
+------------------------------------------------------------------------
+Benchmark                              Time             CPU   Iterations
+------------------------------------------------------------------------
+BM_RapidbuilderCreateJson            849 ns          837 ns       746667
+BM_RapidjsonCreateJson               956 ns          963 ns       746667
+BM_NlohmannCreateJson               4604 ns         4604 ns       149333
+BM_RapidjsonWriterCreateJson         717 ns          715 ns       896000
+BM_RapidbuilderCreateDocument        394 ns          392 ns      1792000
+BM_NlohmannCreateDocument           3333 ns         3299 ns       203636
+BM_RapidjsonCreateDocument           180 ns          180 ns      3733333
 ```
 
 ### Visual studio 2019 
 ```
+2022-01-29T14:10:11+03:00
+Running bench.exe
+Run on (20 X 3600 MHz CPU s)
+CPU Caches:
+  L1 Data 32 KiB (x10)
+  L1 Instruction 32 KiB (x10)
+  L2 Unified 256 KiB (x10)
+  L3 Unified 20480 KiB (x1)
 ------------------------------------------------------------------------
 Benchmark                              Time             CPU   Iterations
 ------------------------------------------------------------------------
-BM_RapidbuilderCreateJson           1575 ns         1569 ns       448000
-BM_RapidjsonCreateJson              1829 ns         1800 ns       373333
-BM_RapidjsonWriterCreateJson        1213 ns         1200 ns       560000
-BM_RapidbuilderCreateDocument        686 ns          698 ns      1120000
-BM_RapidjsonCreateDocument           426 ns          424 ns      1659259
+BM_RapidbuilderCreateJson           1565 ns         1569 ns       448000
+BM_RapidjsonCreateJson              2269 ns         2295 ns       320000
+BM_NlohmannCreateJson              11585 ns        11719 ns        64000
+BM_RapidjsonWriterCreateJson        1193 ns         1200 ns       560000
+BM_RapidbuilderCreateDocument       1168 ns         1172 ns       640000
+BM_NlohmannCreateDocument           9259 ns         9208 ns        74667
+BM_RapidjsonCreateDocument           849 ns          837 ns       746667
 ```
 
 MIT License
-Copyright (c) 2021 pavel.sokolov@gmail.com / CEZEO software Ltd.. All rights reserved.
+Copyright (c) 2022 pavel.sokolov@gmail.com / CEZEO software Ltd.. All rights reserved.

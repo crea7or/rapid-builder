@@ -26,6 +26,7 @@
 #include <benchmark/benchmark.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
+#include <nlohmann/json.hpp>
 
 #include <iostream>
 #include <list>
@@ -35,7 +36,8 @@
 
 static void BM_RapidbuilderCreateJson(benchmark::State& state) {
   // Perform setup here
-  std::string string_field_name("field_name");
+  std::string string_field_name1("field_name1");
+  std::string string_field_name2("field_name2");
   std::string string_field_value("field_value");
 
   std::vector<int8_t> values{1, 2, 3, 4, 5};
@@ -54,9 +56,9 @@ static void BM_RapidbuilderCreateJson(benchmark::State& state) {
   for (auto _ : state) {
     // This code gets timed
 
-    const auto json_text = json::build({{string_field_name, "value"},
+    const auto json_text = json::build({{string_field_name1, "value"},
                                         {"field_name", string_field_value},
-                                        {string_field_name, string_field_value},
+                                        {string_field_name2, string_field_value},
                                         {"obj", {{"some", "other"}, {"int", 0}}},
                                         {"from vector", json::array(values)},
                                         {"int64_t", int64_value},
@@ -81,9 +83,61 @@ static void BM_RapidbuilderCreateJson(benchmark::State& state) {
   benchmark::DoNotOptimize(uint64_value);
 }
 
+static void BM_NlohmannCreateJson(benchmark::State& state) {
+  // Perform setup here
+  std::string string_field_name1("field_name1");
+  std::string string_field_name2("field_name2");
+  std::string string_field_value("field_value");
+
+  // no support from containers in Nlohmann JSON
+  // std::vector<int8_t> values{1, 2, 3, 4, 5};
+
+  unsigned char uchar_value = 'F' + 128;
+  uint16_t uint16_value = 0xFFFF;
+  uint32_t uint32_value = 0xFFFFFFFF;
+  uint64_t uint64_value = 0xFFFFFFFFFFFFFFFF;
+  char char_value = 'F';
+  int16_t int16_value = -32767;
+  int32_t int32_value = 0x8FFFFFF0;
+  int64_t int64_value = 0x8FFFFFFFFFFFFFF0;
+  double double_value = 1.1;
+  float float_value = 2.2f;
+
+  for (auto _ : state) {
+    // This code gets timed
+
+    nlohmann::json json = {{string_field_name1, "value"},
+                           {"field_name", string_field_value},
+                           {string_field_name2, string_field_value},
+                           {"obj", {{"some", "other"}, {"int", 0}}},
+                           {"from vector", nlohmann::json::array({1, 2, 3, 4, 5})},
+                           {"int64_t", int64_value},
+                           {"uint64_t", uint64_value},
+                           {"int32_t", int32_value},
+                           {"uint32_t", uint32_value},
+                           {"int16_t", int16_value},
+                           {"uint16_t", uint16_value},
+                           {"char", char_value},
+                           {"uchar", uchar_value},
+                           {"double", double_value},
+                           {"float", float_value},
+                           {"l", -123l},
+                           {"ul", 123ul},
+                           {"ll", -123ll},
+                           {"ull", 123ull},
+                           {"bool", true}};
+    const auto json_text = json.dump();
+    uint64_value += json_text.size();
+    // std::cout << json_text << std::endl;
+  }
+  // std::cout << "test hash: " << uint64_value << std::endl;
+  benchmark::DoNotOptimize(uint64_value);
+}
+
 static void BM_RapidbuilderCreateDocument(benchmark::State& state) {
   // Perform setup here
-  std::string string_field_name("field_name");
+  std::string string_field_name1("field_name1");
+  std::string string_field_name2("field_name2");
   std::string string_field_value("field_value");
 
   std::vector<int8_t> values{1, 2, 3, 4, 5};
@@ -102,9 +156,9 @@ static void BM_RapidbuilderCreateDocument(benchmark::State& state) {
   for (auto _ : state) {
     // This code gets timed
 
-    const auto json_document = json::build_document({{string_field_name, "value"},
+    const auto json_document = json::build_document({{string_field_name1, "value"},
                                                      {"field_name", string_field_value},
-                                                     {string_field_name, string_field_value},
+                                                     {string_field_name2, string_field_value},
                                                      {"obj", {{"some", "other"}, {"int", 0}}},
                                                      {"from vector", json::array(values)},
                                                      {"int64_t", int64_value},
@@ -128,9 +182,61 @@ static void BM_RapidbuilderCreateDocument(benchmark::State& state) {
   benchmark::DoNotOptimize(uint64_value);
 }
 
+
+static void BM_NlohmannCreateDocument(benchmark::State& state) {
+  // Perform setup here
+  std::string string_field_name1("field_name1");
+  std::string string_field_name2("field_name2");
+  std::string string_field_value("field_value");
+
+  // no support from containers in Nlohmann JSON
+  // std::vector<int8_t> values{1, 2, 3, 4, 5};
+
+  unsigned char uchar_value = 'F' + 128;
+  uint16_t uint16_value = 0xFFFF;
+  uint32_t uint32_value = 0xFFFFFFFF;
+  uint64_t uint64_value = 0xFFFFFFFFFFFFFFFF;
+  char char_value = 'F';
+  int16_t int16_value = -32767;
+  int32_t int32_value = 0x8FFFFFF0;
+  int64_t int64_value = 0x8FFFFFFFFFFFFFF0;
+  double double_value = 1.1;
+  float float_value = 2.2f;
+
+  for (auto _ : state) {
+    // This code gets timed
+
+    nlohmann::json json = {{string_field_name1, "value"},
+                           {"field_name", string_field_value},
+                           {string_field_name2, string_field_value},
+                           {"obj", {{"some", "other"}, {"int", 0}}},
+                           {"from vector", nlohmann::json::array({1, 2, 3, 4, 5})},
+                           {"int64_t", int64_value},
+                           {"uint64_t", uint64_value},
+                           {"int32_t", int32_value},
+                           {"uint32_t", uint32_value},
+                           {"int16_t", int16_value},
+                           {"uint16_t", uint16_value},
+                           {"char", char_value},
+                           {"uchar", uchar_value},
+                           {"double", double_value},
+                           {"float", float_value},
+                           {"l", -123l},
+                           {"ul", 123ul},
+                           {"ll", -123ll},
+                           {"ull", 123ull},
+                           {"bool", true}};
+    uint64_value += json.size();
+    // std::cout << json_text << std::endl;
+  }
+  // std::cout << "test hash: " << uint64_value << std::endl;
+  benchmark::DoNotOptimize(uint64_value);
+}
+
 static void BM_RapidjsonCreateJson(benchmark::State& state) {
   // Perform setup here
-  std::string string_field_name("field_name");
+  std::string string_field_name1("field_name1");
+  std::string string_field_name2("field_name2");
   std::string string_field_value("field_value");
 
   std::vector<int8_t> values{1, 2, 3, 4, 5};
@@ -152,14 +258,14 @@ static void BM_RapidjsonCreateJson(benchmark::State& state) {
     auto& allocator = document.GetAllocator();
 
     // {string_field_name, "value"}
-    document.AddMember(rapidjson::Value(string_field_name, allocator), rapidjson::Value("value"), allocator);
+    document.AddMember(rapidjson::Value(string_field_name1, allocator), rapidjson::Value("value"), allocator);
 
     // {"field_name", string_field_value}
     document.AddMember("field_name", rapidjson::Value(string_field_value, allocator), allocator);
 
     // {string_field_name, string_field_value}
     document.AddMember(
-        rapidjson::Value(string_field_name, allocator), rapidjson::Value(string_field_value, allocator), allocator);
+        rapidjson::Value(string_field_name2, allocator), rapidjson::Value(string_field_value, allocator), allocator);
 
     // {"obj", {{"some", "other"}, {"int", 0}}}
     rapidjson::Value obj(rapidjson::kObjectType);
@@ -215,7 +321,8 @@ static void BM_RapidjsonCreateJson(benchmark::State& state) {
 
 static void BM_RapidjsonCreateDocument(benchmark::State& state) {
   // Perform setup here
-  std::string string_field_name("field_name");
+  std::string string_field_name1("field_name1");
+  std::string string_field_name2("field_name2");
   std::string string_field_value("field_value");
 
   std::vector<int8_t> values{1, 2, 3, 4, 5};
@@ -237,14 +344,14 @@ static void BM_RapidjsonCreateDocument(benchmark::State& state) {
     auto& allocator = document.GetAllocator();
 
     // {string_field_name, "value"}
-    document.AddMember(rapidjson::Value(string_field_name, allocator), rapidjson::Value("value"), allocator);
+    document.AddMember(rapidjson::Value(string_field_name1, allocator), rapidjson::Value("value"), allocator);
 
     // {"field_name", string_field_value}
     document.AddMember("field_name", rapidjson::Value(string_field_value, allocator), allocator);
 
     // {string_field_name, string_field_value}
     document.AddMember(
-        rapidjson::Value(string_field_name, allocator), rapidjson::Value(string_field_value, allocator), allocator);
+        rapidjson::Value(string_field_name2, allocator), rapidjson::Value(string_field_value, allocator), allocator);
 
     // {"obj", {{"some", "other"}, {"int", 0}}}
     rapidjson::Value obj(rapidjson::kObjectType);
@@ -298,7 +405,8 @@ static void BM_RapidjsonCreateDocument(benchmark::State& state) {
 
 static void BM_RapidjsonWriterCreateJson(benchmark::State& state) {
   // Perform setup here
-  std::string string_field_name("field_name");
+  std::string string_field_name1("field_name1");
+  std::string string_field_name2("field_name2");
   std::string string_field_value("field_value");
 
   std::vector<int8_t> values{1, 2, 3, 4, 5};
@@ -321,7 +429,7 @@ static void BM_RapidjsonWriterCreateJson(benchmark::State& state) {
 
     writer.StartObject();
     // {string_field_name, "value"}
-    writer.Key(string_field_name.c_str(), string_field_name.size(), false);
+    writer.Key(string_field_name1.c_str(), string_field_name1.size(), false);
     writer.String("value");
 
     // {"field_name", string_field_value}
@@ -329,7 +437,7 @@ static void BM_RapidjsonWriterCreateJson(benchmark::State& state) {
     writer.String(string_field_value.c_str(), string_field_value.size(), false);
 
     // {string_field_name, string_field_value}
-    writer.Key(string_field_name.c_str(), string_field_name.size(), false);
+    writer.Key(string_field_name2.c_str(), string_field_name2.size(), false);
     writer.String(string_field_value.c_str(), string_field_value.size(), false);
 
     // {"obj", {{"some", "other"}, {"int", 0}}}
@@ -410,9 +518,13 @@ BENCHMARK(BM_RapidbuilderCreateJson);
 
 BENCHMARK(BM_RapidjsonCreateJson);
 
+BENCHMARK(BM_NlohmannCreateJson);
+
 BENCHMARK(BM_RapidjsonWriterCreateJson);
 
 BENCHMARK(BM_RapidbuilderCreateDocument);
+
+BENCHMARK(BM_NlohmannCreateDocument);
 
 BENCHMARK(BM_RapidjsonCreateDocument);
 

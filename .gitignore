@@ -20,3 +20,9 @@ build_log.txt
 CMakeSettings.json
 .gradle/
 local.properties
+*.sln
+*.vcxproj
+*.filters
+*.dir/*
+x64/*
+out/*

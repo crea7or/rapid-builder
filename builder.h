@@ -50,6 +50,7 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+#include <variant>
 
 namespace json {
 namespace builder {
@@ -103,32 +104,23 @@ struct field_holder final {
 };
 
 /**
- * \brief supported data types for value
- */
-enum class value_type { null_t, string_t, int_t, uint_t, bool_t, double_t, object_t, array_t };
-
-/**
  * \brief generic json value holder
  */
 struct value_holder final {
-  const value_type type;
-
   // bool
-  value_holder(const bool value) noexcept : type(value_type::bool_t), primitive(value) {}
+  value_holder(const bool value) noexcept : holder(value) {}
 
   // const nullptr_t
-  value_holder(const nullptr_t value) noexcept : type(value_type::null_t), primitive(value) {}
+  value_holder(const nullptr_t value) noexcept : holder(value) {}
 
   // const char*
-  value_holder(const char* value) noexcept
-      : type(value == nullptr ? value_type::null_t : value_type::string_t), primitive(value) {}
+  value_holder(const char* value) noexcept : holder(value) {}
   // const std::string& value
-  value_holder(const std::string& value) noexcept : type(value_type::string_t), primitive(value) {}
+  value_holder(const std::string& value) noexcept : holder(value) {}
   // std::string_view value
-  value_holder(std::string_view value) noexcept
-      : type(value.data() == nullptr ? value_type::null_t : value_type::string_t), primitive(std::move(value)) {}
+  value_holder(std::string_view value) noexcept : holder(std::move(value)) {}
   // int64_t
-  value_holder(const int64_t value) noexcept : type(value_type::int_t), primitive(value) {}
+  value_holder(const int64_t value) noexcept : holder(value) {}
 #ifdef __linux__
   // long long
   value_holder(const long long value) noexcept : value_holder(static_cast<int64_t>(value)) {}
@@ -143,7 +135,7 @@ struct value_holder final {
   // char as 8 bit signed value
   value_holder(const char value) noexcept : value_holder(static_cast<int64_t>(value)) {}
   // uint64_t
-  value_holder(const uint64_t value) noexcept : type(value_type::uint_t), primitive(value) {}
+  value_holder(const uint64_t value) noexcept : holder(value) {}
 #ifdef __linux__
   // unsigned long long
   value_holder(const unsigned long long value) noexcept : value_holder(static_cast<uint64_t>(value)) {}
@@ -158,18 +150,16 @@ struct value_holder final {
   // unsigned char as 8 bit unsigned value
   value_holder(const unsigned char value) noexcept : value_holder(static_cast<uint64_t>(value)) {}
   // double
-  value_holder(const double value) noexcept : type(value_type::double_t), primitive(value) {}
+  value_holder(const double value) noexcept : holder(value) {}
   // float
   value_holder(const float value) noexcept : value_holder(static_cast<double>(value)) {}
 
   // object from initializer_list
-  value_holder(std::initializer_list<field_holder> value) noexcept
-      : type(value_type::object_t), primitive(false), object_holder(value) {}
+  value_holder(std::initializer_list<field_holder> value) noexcept : holder(value) {}
 
   // array from initializer_list or container, safe to move out from
   // array_holder, because it's our internal structure
-  value_holder(array_holder&& value) noexcept
-      : type(value_type::array_t), primitive(false), array_value(std::move(value)) {}
+  value_holder(array_holder&& value) noexcept : holder(std::move(value)) {}
 
   // copy constructor
   value_holder(const value_holder& src) = default;
@@ -177,35 +167,13 @@ struct value_holder final {
   value_holder(value_holder&& src) = default;
   ~value_holder() = default;
 
-  /**
-   * \brief primitive values holder. can not contain non-trivial types
-   */
-  union primitives_holder final {
-    // internal type to store primitives
-    explicit primitives_holder(const bool value) noexcept : bool_flag(value) {}
-    explicit primitives_holder(const nullptr_t value) noexcept : uint_num(0) {}
-    explicit primitives_holder(const char* value) noexcept : string(value) {}
-    explicit primitives_holder(std::string_view value) noexcept : string(std::move(value)) {}
-    explicit primitives_holder(const std::string& value) noexcept : string(value) {}
-    explicit primitives_holder(const int64_t value) noexcept : int_num(value) {}
-    explicit primitives_holder(const uint64_t value) noexcept : uint_num(value) {}
-    explicit primitives_holder(const double value) noexcept : double_num(value) {}
-    ~primitives_holder() = default;
-    primitives_holder(const primitives_holder&) = default;
-    primitives_holder(primitives_holder&&) = default;
-
-    // actual union of values
-    const std::string_view string;
-    const int64_t int_num;
-    const uint64_t uint_num{0};
-    const double double_num;
-    const bool bool_flag;
-  } primitive;
-
-  // special object value
-  std::initializer_list<field_holder> object_holder;
-  // special array value
-  array_holder array_value;
+  const std::variant<std::nullptr_t, std::string_view,
+                     int64_t,
+                     uint64_t,
+                     double,
+                     bool,
+                     std::initializer_list<field_holder>,
+                     array_holder> holder;
 };
 
 }  // namespace builder

@@ -275,8 +275,12 @@ TEST(BasicTests, CreateArrays) {
 TEST(BasicTests, CreateNotValidObjectWithNull) {
   EXPECT_THROW(json::build({{nullptr, -123000000000}, {"nullptr", nullptr}}), std::runtime_error);
   EXPECT_THROW(json::build_document({{nullptr, -123000000000}, {"nullptr", nullptr}}), std::runtime_error);
-  EXPECT_THROW(json::build({nullptr}), std::runtime_error);
-  EXPECT_THROW(json::build_document({nullptr}), std::runtime_error);
+  const std::string test("null");
+  const std::string null_json = json::build({nullptr});
+  EXPECT_EQ(null_json, test);
+  const auto null_document = json::build_document({nullptr});
+  const std::string stringified = json::stringify(null_document);
+  EXPECT_EQ(stringified, test);
 }
 
 }  // namespace

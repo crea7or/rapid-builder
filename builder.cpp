@@ -27,135 +27,110 @@
 namespace json {
 namespace {
 
-// recursive function
 void RecursiveJsonBuilder(rapidjson::Writer<rapidjson::StringBuffer>& writer, const builder::value_holder& value) {
-  switch (value.type) {
-    case builder::value_type::string_t:
-      writer.String(
-          value.primitive.string.data(), static_cast<rapidjson::SizeType>(value.primitive.string.size()), false);
-      break;
-
-    case builder::value_type::null_t:
-      writer.Null();
-      break;
-
-    case builder::value_type::bool_t:
-      writer.Bool(value.primitive.bool_flag);
-      break;
-
-    case builder::value_type::int_t:
-      writer.Int64(value.primitive.int_num);
-      break;
-
-    case builder::value_type::uint_t:
-      writer.Uint64(value.primitive.uint_num);
-      break;
-
-    case builder::value_type::double_t:
-      writer.Double(value.primitive.double_num);
-      break;
-
-    case builder::value_type::object_t:
-      // start writing object recursively
-      writer.StartObject();
-      for (const auto& field : value.object_holder) {
-        RAPIDJSON_ASSERT(nullptr != field.name.data());
-        writer.Key(field.name.data(), static_cast<rapidjson::SizeType>(field.name.size()), false);
-        RecursiveJsonBuilder(writer, field.value);
-      }
-      writer.EndObject();
-      // end writing object recursively
-      break;
-
-    case builder::value_type::array_t:
-      // start writing array recursively
-      writer.StartArray();
-      // detect source of items
-      if (builder::array_source::vector_t == value.array_value.source) {
-        for (const auto& array_holder : value.array_value.items) {
-          RecursiveJsonBuilder(writer, array_holder);
+  std::visit(
+      [&](auto&& arg) {
+        using T = std::decay_t<decltype(arg)>;
+        if constexpr (std::is_same_v<T, std::nullptr_t>) {
+          writer.Null();
+        } else if constexpr (std::is_same_v<T, bool>) {
+          writer.Bool(arg);
+        } else if constexpr (std::is_same_v<T, int64_t>) {
+          writer.Int64(arg);
+        } else if constexpr (std::is_same_v<T, uint64_t>) {
+          writer.Uint64(arg);
+        } else if constexpr (std::is_same_v<T, double>) {
+          writer.Double(arg);
+        } else if constexpr (std::is_same_v<T, std::string_view>) {
+          writer.String(arg.data(), static_cast<rapidjson::SizeType>(arg.size()));
+        } else if constexpr (std::is_same_v<T, std::initializer_list<builder::field_holder>>) {
+          // start writing object recursively
+          writer.StartObject();
+          for (const builder::field_holder& field : arg) {
+            RAPIDJSON_ASSERT(nullptr != field.name.data());
+            writer.Key(field.name.data(), static_cast<rapidjson::SizeType>(field.name.size()), false);
+            RecursiveJsonBuilder(writer, field.value);
+          }
+          writer.EndObject();
+          // end writing object recursively
+        } else if constexpr (std::is_same_v<T, builder::array_holder>) {
+          // start writing array recursively
+          writer.StartArray();
+          // detect source of items
+          if (builder::array_source::vector_t == arg.source) {
+            for (const auto& array_value : arg.items) {
+              RecursiveJsonBuilder(writer, array_value);
+            }
+          } else {
+            for (const auto& array_value : arg.list_items) {
+              RecursiveJsonBuilder(writer, array_value);
+            }
+          }
+          writer.EndArray();
+          // end writing array recursively
+        } else {
+          RAPIDJSON_ASSERT(false);
         }
-      } else {
-        for (const auto& array_holder : value.array_value.list_items) {
-          RecursiveJsonBuilder(writer, array_holder);
-        }
-      }
-      writer.EndArray();
-      // end writing array recursively
-      break;
-
-    default:
-      RAPIDJSON_ASSERT(false);
-  }
+      },
+      value.holder);
 }
 
 // recursive function
 void RecursiveValueBuilder(rapidjson::Value& result,
                            rapidjson::Document::AllocatorType& allocator,
                            const builder::value_holder& value) {
-  switch (value.type) {
-    case builder::value_type::string_t:
-      result.SetString(value.primitive.string.data(), static_cast<rapidjson::SizeType>(value.primitive.string.size()));
-      break;
-
-    case builder::value_type::null_t:
-      result.SetNull();
-      break;
-
-    case builder::value_type::bool_t:
-      result.SetBool(value.primitive.bool_flag);
-      break;
-
-    case builder::value_type::int_t:
-      result.SetInt64(value.primitive.int_num);
-      break;
-
-    case builder::value_type::uint_t:
-      result.SetUint64(value.primitive.uint_num);
-      break;
-
-    case builder::value_type::double_t:
-      result.SetDouble(value.primitive.double_num);
-      break;
-
-    case builder::value_type::object_t:
-      // start writing object recursively
-      result.SetObject();
-      for (const auto& field : value.object_holder) {
-        RAPIDJSON_ASSERT(nullptr != field.name.data());
-        // create rapid json value from details::value
-        rapidjson::Value member_value;
-        RecursiveValueBuilder(member_value, allocator, field.value);
-        result.AddMember(
-            rapidjson::StringRef(field.name.data(), field.name.size()), std::move(member_value), allocator);
-      }
-      // end writing object recursively
-      break;
-
-    case builder::value_type::array_t:
-      // start writing array recursively
-      result.SetArray();
-      // detect source of items
-      if (builder::array_source::vector_t == value.array_value.source) {
-        for (const auto& array_holder : value.array_value.items) {
-          rapidjson::Value member_value;
-          RecursiveValueBuilder(member_value, allocator, array_holder);
-          result.PushBack(std::move(member_value), allocator);
+  std::visit(
+      [&](auto&& arg) {
+        using T = std::decay_t<decltype(arg)>;
+        if constexpr (std::is_same_v<T, std::nullptr_t>) {
+          result.SetNull();
+        } else if constexpr (std::is_same_v<T, bool>) {
+          result.SetBool(arg);
+        } else if constexpr (std::is_same_v<T, int64_t>) {
+          result.SetInt64(arg);
+        } else if constexpr (std::is_same_v<T, uint64_t>) {
+          result.SetUint64(arg);
+        } else if constexpr (std::is_same_v<T, double>) {
+          result.SetDouble(arg);
+        } else if constexpr (std::is_same_v<T, std::string_view>) {
+          result.SetString(arg.data(), static_cast<rapidjson::SizeType>(arg.size()));
+        } else if constexpr (std::is_same_v<T, std::initializer_list<builder::field_holder>>) {
+          // start writing object recursively
+          result.SetObject();
+          for (const builder::field_holder& field : arg) {
+            RAPIDJSON_ASSERT(nullptr != field.name.data());
+            // create rapid json value from details::value
+            rapidjson::Value member_value;
+            RecursiveValueBuilder(member_value, allocator, field.value);
+            result.AddMember(
+                rapidjson::StringRef(field.name.data(), field.name.size()), std::move(member_value), allocator);
+          }
+          // end writing object recursively
+        } else if constexpr (std::is_same_v<T, builder::array_holder>) {
+          // start writing array recursively
+          result.SetArray();
+          // detect source of items
+          if (builder::array_source::vector_t == arg.source) {
+            for (const auto& array_value : arg.items) {
+              rapidjson::Value member_value;
+              RecursiveValueBuilder(member_value, allocator, array_value);
+              result.PushBack(std::move(member_value), allocator);
+            }
+          } else {
+            for (const auto& array_value : arg.list_items) {
+              rapidjson::Value member_value;
+              RecursiveValueBuilder(member_value, allocator, array_value);
+              result.PushBack(std::move(member_value), allocator);
+            }
+          }
+          // end writing array recursively
+        } else {
+          RAPIDJSON_ASSERT(false);
         }
-      } else {
-        for (const auto& array_holder : value.array_value.list_items) {
-          rapidjson::Value member_value;
-          RecursiveValueBuilder(member_value, allocator, array_holder);
-          result.PushBack(std::move(member_value), allocator);
-        }
-      }
-      // end writing array recursively
-      break;
-
-    default:
-      RAPIDJSON_ASSERT(false);
-  }
+      },
+      value.holder);
 }
+
 }  // namespace
 
 std::string stringify(const rapidjson::Document& document) {
@@ -173,7 +148,6 @@ builder::array_holder array(std::initializer_list<builder::value_holder> list) {
  * \brief build json string
  */
 std::string build(const builder::value_holder& value) {
-  RAPIDJSON_ASSERT(builder::value_type::array_t == value.type || builder::value_type::object_t == value.type);
   rapidjson::StringBuffer string_buffer;
   rapidjson::Writer<rapidjson::StringBuffer> writer(string_buffer);
   // recursive builder
@@ -187,7 +161,6 @@ std::string build(const builder::value_holder& value) {
  */
 rapidjson::Value build_value(const builder::value_holder& value, rapidjson::Document::AllocatorType& allocator) {
   rapidjson::Value result;
-  RAPIDJSON_ASSERT(builder::value_type::array_t == value.type || builder::value_type::object_t == value.type);
   // recursive builder
   RecursiveValueBuilder(result, allocator, value);
   return result;

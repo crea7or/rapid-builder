@@ -1,8 +1,8 @@
 [requires]
-rapidjson/1.1.0
-gtest/1.16.0
-benchmark/1.9.4
-nlohmann_json/3.12.0
+rapidjson/cci.20200410
+gtest/cci.20210126
+benchmark/1.6.0
+nlohmann_json/3.10.5
 
 [generators]
 cmake

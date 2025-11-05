@@ -26,3 +26,4 @@ local.properties
 *.dir/*
 x64/*
 out/*
+CMakeUserPresets.json

@@ -27,6 +27,19 @@
 namespace json {
 namespace {
 
+template <typename Func>
+void ForEachArrayValue(const builder::array_holder& holder, Func&& func) {
+  if (builder::array_source::vector_t == holder.source) {
+    for (const auto& array_value : holder.items) {
+      func(array_value);
+    }
+  } else {
+    for (const auto& array_value : holder.list_items) {
+      func(array_value);
+    }
+  }
+}
+
 void RecursiveJsonBuilder(rapidjson::Writer<rapidjson::StringBuffer>& writer, const builder::value_holder& value) {
   std::visit(
       [&](auto&& arg) {
@@ -56,16 +69,9 @@ void RecursiveJsonBuilder(rapidjson::Writer<rapidjson::StringBuffer>& writer, co
         } else if constexpr (std::is_same_v<T, builder::array_holder>) {
           // start writing array recursively
           writer.StartArray();
-          // detect source of items
-          if (builder::array_source::vector_t == arg.source) {
-            for (const auto& array_value : arg.items) {
-              RecursiveJsonBuilder(writer, array_value);
-            }
-          } else {
-            for (const auto& array_value : arg.list_items) {
-              RecursiveJsonBuilder(writer, array_value);
-            }
-          }
+          ForEachArrayValue(arg, [&](const builder::value_holder& array_value) {
+            RecursiveJsonBuilder(writer, array_value);
+          });
           writer.EndArray();
           // end writing array recursively
         } else {
@@ -109,20 +115,11 @@ void RecursiveValueBuilder(rapidjson::Value& result,
         } else if constexpr (std::is_same_v<T, builder::array_holder>) {
           // start writing array recursively
           result.SetArray();
-          // detect source of items
-          if (builder::array_source::vector_t == arg.source) {
-            for (const auto& array_value : arg.items) {
-              rapidjson::Value member_value;
-              RecursiveValueBuilder(member_value, allocator, array_value);
-              result.PushBack(std::move(member_value), allocator);
-            }
-          } else {
-            for (const auto& array_value : arg.list_items) {
-              rapidjson::Value member_value;
-              RecursiveValueBuilder(member_value, allocator, array_value);
-              result.PushBack(std::move(member_value), allocator);
-            }
-          }
+          ForEachArrayValue(arg, [&](const builder::value_holder& array_value) {
+            rapidjson::Value member_value;
+            RecursiveValueBuilder(member_value, allocator, array_value);
+            result.PushBack(std::move(member_value), allocator);
+          });
           // end writing array recursively
         } else {
           RAPIDJSON_ASSERT(false);
@@ -171,8 +168,7 @@ rapidjson::Value build_value(const builder::value_holder& value, rapidjson::Docu
  */
 rapidjson::Document build_document(const builder::value_holder& value) {
   rapidjson::Document result;
-  rapidjson::Value rapid_value(build_value(value, result.GetAllocator()));
-  rapid_value.Swap(result);
+  RecursiveValueBuilder(result, result.GetAllocator(), value);
   return result;
 }
 

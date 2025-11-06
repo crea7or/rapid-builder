@@ -48,9 +48,10 @@
 
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
-#include <vector>
 #include <variant>
+#include <vector>
 
 namespace json {
 namespace builder {
@@ -69,7 +70,7 @@ struct array_holder final {
   array_holder() = default;
   array_holder(size_t reserve) { items.reserve(reserve); };
   array_holder(std::initializer_list<value_holder> values) noexcept
-      : list_items(values), source(array_source::list_t){};
+      : list_items(values), source(array_source::list_t) {};
   array_holder(const array_holder& src) = default;
   array_holder(array_holder&& src) = default;
   ~array_holder() = default;
@@ -167,13 +168,15 @@ struct value_holder final {
   value_holder(value_holder&& src) = default;
   ~value_holder() = default;
 
-  const std::variant<std::nullptr_t, std::string_view,
+  const std::variant<std::nullptr_t,
+                     std::string_view,
                      int64_t,
                      uint64_t,
                      double,
                      bool,
                      std::initializer_list<field_holder>,
-                     array_holder> holder;
+                     array_holder>
+      holder;
 };
 
 }  // namespace builder
@@ -181,12 +184,33 @@ struct value_holder final {
 /**
  * \brief helper function to convert container explicitly to Array
  */
+namespace detail {
+template <typename T, typename = void>
+struct has_size : std::false_type {};
+
+template <typename T>
+struct has_size<T, std::void_t<decltype(std::declval<const T&>().size())>> : std::true_type {};
+
+template <typename T>
+inline constexpr bool has_size_v = has_size<T>::value;
+}  // namespace detail
+
 template <typename CONTAINER>
-builder::array_holder array(const CONTAINER& container) {
-  builder::array_holder array_value(container.size());
-  // because we can not copy vector<T> to initializer_list<ValueHolder>
-  for (const auto& value : container) {
-    array_value.items.emplace_back(value);
+builder::array_holder array(CONTAINER&& container) {
+  builder::array_holder array_value;
+
+  if constexpr (detail::has_size_v<std::decay_t<CONTAINER>>) {
+    array_value.items.reserve(static_cast<size_t>(container.size()));
+  }
+
+  if constexpr (std::is_rvalue_reference_v<CONTAINER&&>) {
+    for (auto&& value : container) {
+      array_value.items.emplace_back(std::move(value));
+    }
+  } else {
+    for (const auto& value : container) {
+      array_value.items.emplace_back(value);
+    }
   }
   return array_value;
 }

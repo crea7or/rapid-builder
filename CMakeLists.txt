@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.31)
 
 project("tests")
 
@@ -10,11 +10,13 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 set(BENCH_SOURCES bench.cpp builder.h builder.cpp)
 
-# init for vs 2002
+#
 # conan install . -s build_type=Release --build=missing
 # conan install . -s build_type=Debug --build=missing
+# cmake --preset conan-default
+# init for vs 2022
 # cmake -B build -S . -G "Visual Studio 17 2022" -DCMAKE_TOOLCHAIN_FILE=build/generators/conan_toolchain.cmake
-# Open build\fit2srt.sln
+# open build\fit2srt.sln
 # same for other IDEs
 
 find_package(nlohmann_json REQUIRED)

@@ -89,11 +89,12 @@ struct array_holder final {
  */
 struct field_holder final {
   // invalid name
-  field_holder(const nullptr_t name, const value_holder& value) noexcept : name(name, 0), value(value) {}
+  constexpr field_holder(const nullptr_t name, const value_holder& value) noexcept : name(name, 0), value(value) {}
   // name as char*
-  field_holder(const char* name, const value_holder& value) noexcept : name(name), value(value) {}
+  constexpr field_holder(const char* name, const value_holder& value) noexcept : name(name), value(value) {}
   // name as std::string_view
-  field_holder(std::string_view name, const value_holder& value) noexcept : name(std::move(name)), value(value) {}
+  constexpr field_holder(std::string_view name, const value_holder& value) noexcept
+      : name(std::move(name)), value(value) {}
   // name as std::string
   field_holder(const std::string& name, const value_holder& value) noexcept : name(name), value(value) {}
   field_holder(const field_holder& src) = default;
@@ -109,51 +110,51 @@ struct field_holder final {
  */
 struct value_holder final {
   // bool
-  value_holder(const bool value) noexcept : holder(value) {}
+  constexpr value_holder(const bool value) noexcept : holder(value) {}
 
   // const nullptr_t
-  value_holder(const nullptr_t value) noexcept : holder(value) {}
+  constexpr value_holder(const nullptr_t value) noexcept : holder(value) {}
 
   // const char*
-  value_holder(const char* value) noexcept : holder(value) {}
+  constexpr value_holder(const char* value) noexcept : holder(value) {}
   // const std::string& value
   value_holder(const std::string& value) noexcept : holder(value) {}
   // std::string_view value
-  value_holder(std::string_view value) noexcept : holder(std::move(value)) {}
+  constexpr value_holder(std::string_view value) noexcept : holder(std::move(value)) {}
   // int64_t
-  value_holder(const int64_t value) noexcept : holder(value) {}
+  constexpr value_holder(const int64_t value) noexcept : holder(value) {}
 #ifdef __linux__
   // long long
-  value_holder(const long long value) noexcept : value_holder(static_cast<int64_t>(value)) {}
+  constexpr value_holder(const long long value) noexcept : value_holder(static_cast<int64_t>(value)) {}
 #else
   // long
-  value_holder(const long value) noexcept : value_holder(static_cast<int64_t>(value)) {}
+  constexpr value_holder(const long value) noexcept : value_holder(static_cast<int64_t>(value)) {}
 #endif
   // int32_t
-  value_holder(const int32_t value) noexcept : value_holder(static_cast<int64_t>(value)) {}
+  constexpr value_holder(const int32_t value) noexcept : value_holder(static_cast<int64_t>(value)) {}
   // int16_t
-  value_holder(const int16_t value) noexcept : value_holder(static_cast<int64_t>(value)) {}
+  constexpr value_holder(const int16_t value) noexcept : value_holder(static_cast<int64_t>(value)) {}
   // char as 8 bit signed value
-  value_holder(const char value) noexcept : value_holder(static_cast<int64_t>(value)) {}
+  constexpr value_holder(const char value) noexcept : value_holder(static_cast<int64_t>(value)) {}
   // uint64_t
-  value_holder(const uint64_t value) noexcept : holder(value) {}
+  constexpr value_holder(const uint64_t value) noexcept : holder(value) {}
 #ifdef __linux__
   // unsigned long long
-  value_holder(const unsigned long long value) noexcept : value_holder(static_cast<uint64_t>(value)) {}
+  constexpr value_holder(const unsigned long long value) noexcept : value_holder(static_cast<uint64_t>(value)) {}
 #else
   // unsigned long
-  value_holder(const unsigned long value) noexcept : value_holder(static_cast<uint64_t>(value)) {}
+  constexpr value_holder(const unsigned long value) noexcept : value_holder(static_cast<uint64_t>(value)) {}
 #endif
   // uint32_t
-  value_holder(const uint32_t value) noexcept : value_holder(static_cast<uint64_t>(value)) {}
+  constexpr value_holder(const uint32_t value) noexcept : value_holder(static_cast<uint64_t>(value)) {}
   // uint16_t
-  value_holder(const uint16_t value) noexcept : value_holder(static_cast<uint64_t>(value)) {}
+  constexpr value_holder(const uint16_t value) noexcept : value_holder(static_cast<uint64_t>(value)) {}
   // unsigned char as 8 bit unsigned value
-  value_holder(const unsigned char value) noexcept : value_holder(static_cast<uint64_t>(value)) {}
+  constexpr value_holder(const unsigned char value) noexcept : value_holder(static_cast<uint64_t>(value)) {}
   // double
-  value_holder(const double value) noexcept : holder(value) {}
+  constexpr value_holder(const double value) noexcept : holder(value) {}
   // float
-  value_holder(const float value) noexcept : value_holder(static_cast<double>(value)) {}
+  constexpr value_holder(const float value) noexcept : value_holder(static_cast<double>(value)) {}
 
   // object from initializer_list
   value_holder(std::initializer_list<field_holder> value) noexcept : holder(value) {}

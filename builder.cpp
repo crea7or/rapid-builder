@@ -40,6 +40,21 @@ void ForEachArrayValue(const builder::array_holder& holder, Func&& func) {
   }
 }
 
+template <typename Func>
+void ForEachObjectField(const builder::object_holder& holder, Func&& func) {
+  if (builder::object_source::vector_t == holder.source) {
+    for (const auto& field : holder.items) {
+      RAPIDJSON_ASSERT(nullptr != field.value);
+      func(std::string_view(field.name), *field.value);
+    }
+  } else {
+    for (const builder::field_holder& field : holder.list_items) {
+      RAPIDJSON_ASSERT(nullptr != field.name.data());
+      func(field.name, field.value);
+    }
+  }
+}
+
 void RecursiveJsonBuilder(rapidjson::Writer<rapidjson::StringBuffer>& writer, const builder::value_holder& value) {
   std::visit(
       [&](auto&& arg) {
@@ -56,14 +71,13 @@ void RecursiveJsonBuilder(rapidjson::Writer<rapidjson::StringBuffer>& writer, co
           writer.Double(arg);
         } else if constexpr (std::is_same_v<T, std::string_view>) {
           writer.String(arg.data(), static_cast<rapidjson::SizeType>(arg.size()));
-        } else if constexpr (std::is_same_v<T, std::initializer_list<builder::field_holder>>) {
+        } else if constexpr (std::is_same_v<T, builder::object_holder>) {
           // start writing object recursively
           writer.StartObject();
-          for (const builder::field_holder& field : arg) {
-            RAPIDJSON_ASSERT(nullptr != field.name.data());
-            writer.Key(field.name.data(), static_cast<rapidjson::SizeType>(field.name.size()), false);
-            RecursiveJsonBuilder(writer, field.value);
-          }
+          ForEachObjectField(arg, [&](std::string_view name, const builder::value_holder& field_value) {
+            writer.Key(name.data(), static_cast<rapidjson::SizeType>(name.size()), false);
+            RecursiveJsonBuilder(writer, field_value);
+          });
           writer.EndObject();
           // end writing object recursively
         } else if constexpr (std::is_same_v<T, builder::array_holder>) {
@@ -99,18 +113,16 @@ void RecursiveValueBuilder(rapidjson::Value& result,
         } else if constexpr (std::is_same_v<T, double>) {
           result.SetDouble(arg);
         } else if constexpr (std::is_same_v<T, std::string_view>) {
-          result.SetString(arg.data(), static_cast<rapidjson::SizeType>(arg.size()));
-        } else if constexpr (std::is_same_v<T, std::initializer_list<builder::field_holder>>) {
+          result.SetString(rapidjson::StringRef(arg.data(), static_cast<rapidjson::SizeType>(arg.size())));
+        } else if constexpr (std::is_same_v<T, builder::object_holder>) {
           // start writing object recursively
           result.SetObject();
-          for (const builder::field_holder& field : arg) {
-            RAPIDJSON_ASSERT(nullptr != field.name.data());
+          ForEachObjectField(arg, [&](std::string_view name, const builder::value_holder& field_value) {
             // create rapid json value from details::value
             rapidjson::Value member_value;
-            RecursiveValueBuilder(member_value, allocator, field.value);
-            result.AddMember(
-                rapidjson::StringRef(field.name.data(), field.name.size()), std::move(member_value), allocator);
-          }
+            RecursiveValueBuilder(member_value, allocator, field_value);
+            result.AddMember(rapidjson::StringRef(name.data(), name.size()), std::move(member_value), allocator);
+          });
           // end writing object recursively
         } else if constexpr (std::is_same_v<T, builder::array_holder>) {
           // start writing array recursively
@@ -130,6 +142,10 @@ void RecursiveValueBuilder(rapidjson::Value& result,
 
 }  // namespace
 
+std::string BuildInternal(const builder::value_holder& value);
+rapidjson::Value BuildValueInternal(const builder::value_holder& value, rapidjson::Document::AllocatorType& allocator);
+rapidjson::Document BuildDocumentInternal(const builder::value_holder& value);
+
 std::string stringify(const rapidjson::Document& document) {
   rapidjson::StringBuffer buffer;
   rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
@@ -137,14 +153,26 @@ std::string stringify(const rapidjson::Document& document) {
   return std::string(buffer.GetString(), buffer.GetSize());
 }
 
-builder::array_holder array(std::initializer_list<builder::value_holder> list) {
-  return builder::array_holder(list);
+value array(std::initializer_list<builder::value_holder> list) {
+  return value(builder::value_holder(builder::array_holder(list)));
 }
 
 /**
  * \brief build json string
  */
-std::string build(const builder::value_holder& value) {
+std::string build(std::initializer_list<builder::field_holder> value) {
+  return BuildInternal(builder::value_holder(value));
+}
+
+std::string build(std::initializer_list<builder::value_holder> value) {
+  return BuildInternal(builder::value_holder(builder::array_holder(value)));
+}
+
+std::string build(const value& value) {
+  return BuildInternal(value.internal());
+}
+
+std::string BuildInternal(const builder::value_holder& value) {
   rapidjson::StringBuffer string_buffer;
   rapidjson::Writer<rapidjson::StringBuffer> writer(string_buffer);
   // recursive builder
@@ -156,7 +184,21 @@ std::string build(const builder::value_holder& value) {
 /**
  * \brief build rapidjson value (array or object)
  */
-rapidjson::Value build_value(const builder::value_holder& value, rapidjson::Document::AllocatorType& allocator) {
+rapidjson::Value build_value(std::initializer_list<builder::field_holder> value,
+                             rapidjson::Document::AllocatorType& allocator) {
+  return BuildValueInternal(builder::value_holder(value), allocator);
+}
+
+rapidjson::Value build_value(std::initializer_list<builder::value_holder> value,
+                             rapidjson::Document::AllocatorType& allocator) {
+  return BuildValueInternal(builder::value_holder(builder::array_holder(value)), allocator);
+}
+
+rapidjson::Value build_value(const value& value, rapidjson::Document::AllocatorType& allocator) {
+  return BuildValueInternal(value.internal(), allocator);
+}
+
+rapidjson::Value BuildValueInternal(const builder::value_holder& value, rapidjson::Document::AllocatorType& allocator) {
   rapidjson::Value result;
   // recursive builder
   RecursiveValueBuilder(result, allocator, value);
@@ -166,7 +208,19 @@ rapidjson::Value build_value(const builder::value_holder& value, rapidjson::Docu
 /**
  * \brief build rapidjson document with array or object
  */
-rapidjson::Document build_document(const builder::value_holder& value) {
+rapidjson::Document build_document(std::initializer_list<builder::field_holder> value) {
+  return BuildDocumentInternal(builder::value_holder(value));
+}
+
+rapidjson::Document build_document(std::initializer_list<builder::value_holder> value) {
+  return BuildDocumentInternal(builder::value_holder(builder::array_holder(value)));
+}
+
+rapidjson::Document build_document(const value& value) {
+  return BuildDocumentInternal(value.internal());
+}
+
+rapidjson::Document BuildDocumentInternal(const builder::value_holder& value) {
   rapidjson::Document result;
   RecursiveValueBuilder(result, result.GetAllocator(), value);
   return result;

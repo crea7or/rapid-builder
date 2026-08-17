@@ -27,6 +27,7 @@ using ::testing::TestInfo;
 using ::testing::TestPartResult;
 using ::testing::UnitTest;
 
+#include <functional>
 #include <iostream>
 #include <list>
 #include <map>
@@ -40,6 +41,17 @@ using ::testing::UnitTest;
 #include "builder.h"
 
 namespace {
+
+void ExpectRuntimeErrorMessage(const std::function<void()>& action, std::string_view expected_message) {
+  try {
+    action();
+    FAIL() << "Expected std::runtime_error";
+  } catch (const std::runtime_error& ex) {
+    EXPECT_EQ(std::string(ex.what()), expected_message);
+  } catch (...) {
+    FAIL() << "Expected std::runtime_error";
+  }
+}
 
 TEST(BasicTests, CreateJSONviadifferentAPIcalls) {
   std::string string_field_name("field_name");
@@ -370,6 +382,67 @@ TEST(BasicTests, CreateNotValidObjectWithNull) {
   const auto null_document = json::build_document(json::value(nullptr));
   const std::string stringified = json::stringify(null_document);
   EXPECT_EQ(stringified, test);
+}
+
+TEST(BasicTests, NullptrParamsAreSerializedAsJsonNull) {
+  rapidjson::Document document;
+  const json::value source(json::object(std::vector<std::pair<std::string, json::value>>{
+      {"top_level_param", nullptr},
+      {"nested", json::object(std::vector<std::pair<std::string, json::value>>{{"inner_param", nullptr}})},
+      {"array_params", json::array(std::vector<json::value>{1, nullptr, "value"})}}));
+
+  const auto json_text = json::build(source);
+  const auto rapid_json_object = json::build_document(source);
+  const auto rapid_json_value = json::build_value(source, document.GetAllocator());
+
+  const std::string expected(
+      R"%({"top_level_param":null,"nested":{"inner_param":null},"array_params":[1,null,"value"]})%");
+
+  EXPECT_EQ(json_text, expected);
+  EXPECT_EQ(json::stringify(rapid_json_object), expected);
+
+  ASSERT_TRUE(rapid_json_value.IsObject());
+  ASSERT_TRUE(rapid_json_value.HasMember("top_level_param"));
+  EXPECT_TRUE(rapid_json_value["top_level_param"].IsNull());
+  ASSERT_TRUE(rapid_json_value.HasMember("nested"));
+  ASSERT_TRUE(rapid_json_value["nested"].IsObject());
+  ASSERT_TRUE(rapid_json_value["nested"].HasMember("inner_param"));
+  EXPECT_TRUE(rapid_json_value["nested"]["inner_param"].IsNull());
+  ASSERT_TRUE(rapid_json_value.HasMember("array_params"));
+  ASSERT_TRUE(rapid_json_value["array_params"].IsArray());
+  ASSERT_EQ(rapid_json_value["array_params"].Size(), 3u);
+  EXPECT_EQ(rapid_json_value["array_params"][0].GetInt(), 1);
+  EXPECT_TRUE(rapid_json_value["array_params"][1].IsNull());
+  EXPECT_STREQ(rapid_json_value["array_params"][2].GetString(), "value");
+}
+
+TEST(BasicTests, InvalidObjectFieldNameReportsDetailedError) {
+  rapidjson::Document document;
+  constexpr std::string_view expected_message = "Failed: nullptr != field.name.data()";
+
+  ExpectRuntimeErrorMessage(
+      []() { static_cast<void>(json::build({{nullptr, -123000000000}, {"nullptr", nullptr}})); }, expected_message);
+  ExpectRuntimeErrorMessage(
+      []() { static_cast<void>(json::build_document({{nullptr, -123000000000}, {"nullptr", nullptr}})); },
+      expected_message);
+  ExpectRuntimeErrorMessage(
+      [&document]() {
+        static_cast<void>(json::build_value({{nullptr, -123000000000}, {"nullptr", nullptr}}, document.GetAllocator()));
+      },
+      expected_message);
+}
+
+TEST(BasicTests, InvalidNestedObjectFieldNameReportsDetailedError) {
+  rapidjson::Document document;
+  constexpr std::string_view expected_message = "Failed: nullptr != field.name.data()";
+
+  ExpectRuntimeErrorMessage(
+      []() { static_cast<void>(json::build({{"wrapper", {{nullptr, 1}}}})); }, expected_message);
+  ExpectRuntimeErrorMessage(
+      []() { static_cast<void>(json::build_document({{"wrapper", {{nullptr, 1}}}})); }, expected_message);
+  ExpectRuntimeErrorMessage(
+      [&document]() { static_cast<void>(json::build_value({{"wrapper", {{nullptr, 1}}}}, document.GetAllocator())); },
+      expected_message);
 }
 
 TEST(BasicTests, BuildValueCreatesNestedRapidJsonValue) {

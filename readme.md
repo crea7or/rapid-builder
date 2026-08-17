@@ -1,6 +1,6 @@
 # NEAT JSON BUILDER for RAPIDJSON
 
-The **Rapid Builder** provides a clean and readable way to create JSON using `std::initializer_list` (C++11 feature). With just three easy-to-use API calls—`BuildJson`, `BuildValue`, or `BuildDocument`—you can generate `std::string`, `rapidjson::Document`, or `rapidjson::Value` objects.
+The **Rapid Builder** provides a clean and readable way to create JSON using `std::initializer_list` (a C++11 feature). With three API calls - `json::build`, `json::build_value`, and `json::build_document` - you can generate `std::string`, `rapidjson::Value`, or `rapidjson::Document` objects.
 
 > **Note:** Rapid Builder requires **C++17** because it uses `std::string_view` and `std::variant`.
 
@@ -97,39 +97,87 @@ writer.EndArray();
 const std::string json(string_buffer.GetString(), string_buffer.Size());
 ```
 
-So I think that you get the point of Rapid Builder.
-**Nlohmann JSON library uses a similar approach** to build JSON, and I have included it in the benchmark section for comparison.
+So you get the point of Rapid Builder.
+**Nlohmann JSON uses a similar style** to build JSON, and it is included in the benchmark section for comparison.
 
 ---
 
 ## More Complex Examples
 
 ```c++
-  std::vector<int> values{1,2,3,4};
-  const auto rapid_json_object =
-        json::build({{"object", {{"some", "other"}, {"int", 0}}},
-                     {"from vector", json::array(values)},
-                     {"array of objects",
-                       {{"string", json::array({string_field_name, json::array({0, 1, 2}), "2"}),
-                       {{"name", "value"}, {"bool", false}}}}
-                     }});
+std::vector<int> values{1, 2, 3, 4};
+const auto rapid_json_object =
+    json::build({{"object", {{"some", "other"}, {"int", 0}}},
+                 {"from vector", json::array(values)},
+                 {"array of objects",
+                  {{"string", json::array({string_field_name, json::array({0, 1, 2}), "2"}),
+                    {{"name", "value"}, {"bool", false}}}}});
 ```
 
 ---
 
 ## Limitations
 
-1. **Do not use temporary variables!**
-   Rapid Builder internally uses `StringRef()` from RapidJSON. Temporaries will be destroyed before the JSON is fully built, leading to undefined behavior.
+1. **This library is not intended to work with short-lived local temporaries created directly inside the same expression, unless the whole JSON is consumed immediately.**
+
+   This statement is confirmed by the code:
+   - `builder::field_holder` stores object field names as `std::string_view` and values as references in [builder.h](C:\Sources\rapid-builder\builder.h:97).
+   - `builder::value_holder` stores strings as `std::string_view` in [builder.h](C:\Sources\rapid-builder\builder.h:144).
+   - `build(...)` writes those borrowed views directly through `writer.String(...)` and `writer.Key(...)` in [builder.cpp](C:\Sources\rapid-builder\builder.cpp:72) and [builder.cpp](C:\Sources\rapid-builder\builder.cpp:77).
+
+   Safe one-shot usage:
 
    ```c++
-   // ❌ BAD EXAMPLE
-   const auto bad = json::build({
+   const auto json = json::build({
+       {"username", "my_username"},
+       {"password", "my_password"}
+   });
+   ```
+
+   Not intended for persisted builder input:
+
+   ```c++
+   // BAD: temporaries are created inline and then die immediately
+   const json::value bad = json::object(std::vector<std::pair<std::string, json::value>>{
        {std::string("field"), std::string("value")}
    });
    ```
 
-2. Containers can be directly used as arrays, but you cannot use `rapidjson::Value` in the same way.
+2. **If the library is used to build a `rapidjson::Value` or `rapidjson::Document`, the input parameters must outlive the returned RapidJSON object.**
+
+   This is also confirmed by the code:
+   - `build_value(...)` stores strings with `rapidjson::StringRef(...)` in [builder.cpp](C:\Sources\rapid-builder\builder.cpp:115).
+   - Object member names are added with `rapidjson::StringRef(...)` in [builder.cpp](C:\Sources\rapid-builder\builder.cpp:124).
+   - `build_document(...)` returns a `rapidjson::Document` produced from the same borrowed builder tree in [builder.cpp](C:\Sources\rapid-builder\builder.cpp:223).
+   - The public header already states this contract for `build_value(...)` and `build_document(...)` in [builder.h](C:\Sources\rapid-builder\builder.h:358) and [builder.h](C:\Sources\rapid-builder\builder.h:370).
+
+   Intended usage:
+
+   ```c++
+   std::string field_name = "field";
+   std::string field_value = "value";
+
+   const json::value source = json::object(std::vector<std::pair<std::string, json::value>>{
+       {field_name, field_value}
+   });
+
+   const auto doc = json::build_document(source);
+   // `source`, `field_name`, and `field_value` must stay alive while `doc` is used.
+   ```
+
+   Not intended:
+
+   ```c++
+   // BAD: the temporary input dies right after the call
+   const auto doc = json::build_document(
+       json::object(std::vector<std::pair<std::string, json::value>>{{"field", "value"}}));
+   ```
+
+3. **Persisted trees should be built with `json::value`, `json::object(...)`, and `json::array(...)`.**
+
+   One-shot `json::build(...)`, `json::build_value(...)`, and `json::build_document(...)` calls may use initializer-list syntax directly. If you want to keep an intermediate tree around, build it as `json::value` first and keep the underlying input data alive for as long as needed.
+
+4. Containers can be directly used as arrays, but you cannot use `rapidjson::Value` in the same way.
 
 ---
 
@@ -142,7 +190,7 @@ Rapid Builder was tested against `rapidjson` and `nlohmann/json`.
 ```
 BM_RapidbuilderCreateJson        - This builder (create JSON text)
 BM_RapidjsonCreateJson           - Regular rapidjson API (create JSON text)
-BM_NlohmannCreateJson             - Nlohmann JSON (create JSON text)
+BM_NlohmannCreateJson            - Nlohmann JSON (create JSON text)
 BM_RapidjsonWriterCreateJson     - Writer API (create JSON text)
 
 BM_RapidbuilderCreateDocument    - This builder (create JSON object)

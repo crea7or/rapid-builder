@@ -27,8 +27,10 @@ using ::testing::TestInfo;
 using ::testing::TestPartResult;
 using ::testing::UnitTest;
 
+#include <cmath>
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <list>
 #include <map>
 #include <string_view>
@@ -476,6 +478,117 @@ TEST(BasicTests, BuildDocumentRequiresSourceLifetimeForContainerBackedObjects) {
   const auto rapid_json_object = json::build_document(source);
 
   EXPECT_EQ(json::stringify(rapid_json_object), R"%({"name":"value","map":{"a":1,"b":2,"c":3}})%");
+}
+
+// overwrites the stack area used by the previous full expression temporaries
+void ClobberStack() {
+  volatile char buffer[4096];
+  for (auto& item : buffer) {
+    item = static_cast<char>(0xCD);
+  }
+}
+
+TEST(BasicTests, PersistedArrayFromInitializerListOwnsItems) {
+  const json::value source = json::array({1, "two", {{"name", "value"}}, {{3, 4}}, nullptr});
+  const json::value nested = json::array(
+      {json::object(std::map<std::string, int32_t>{{"name longer than the small string buffer", 1}}), false});
+  ClobberStack();
+
+  const std::string test(R"%([1,"two",{"name":"value"},[3,4],null])%");
+  EXPECT_EQ(json::build(source), test);
+  EXPECT_EQ(json::stringify(json::build_document(source)), test);
+  EXPECT_EQ(json::build(nested), R"%([{"name longer than the small string buffer":1},false])%");
+}
+
+TEST(BasicTests, NanAndInfAreSerializedAsJsonNull) {
+  const auto json_text = json::build({{"nan", std::nan("")},
+                                      {"inf", std::numeric_limits<double>::infinity()},
+                                      {"float", -std::numeric_limits<float>::infinity()},
+                                      {"number", 1.5}});
+  const auto rapid_json_object = json::build_document({{"nan", std::nan("")}, {"number", 1.5}});
+
+  EXPECT_EQ(json_text, R"%({"nan":null,"inf":null,"float":null,"number":1.5})%");
+  EXPECT_EQ(json::stringify(rapid_json_object), R"%({"nan":null,"number":1.5})%");
+}
+
+TEST(BasicTests, ValueIsAssignableAndMovable) {
+  static_assert(std::is_copy_assignable_v<json::value>);
+  static_assert(std::is_nothrow_move_constructible_v<json::value>);
+  static_assert(std::is_nothrow_move_assignable_v<json::value>);
+  // json::value keeps a view of the string, a temporary string would dangle
+  static_assert(!std::is_constructible_v<json::value, std::string&&>);
+
+  const std::vector<int32_t> values{1, 2, 3};
+  json::value source(nullptr);
+  source = json::array(values);
+  json::value copy(source);
+  json::value moved(std::move(source));
+  source = copy;
+
+  EXPECT_EQ(json::build(copy), "[1,2,3]");
+  EXPECT_EQ(json::build(moved), "[1,2,3]");
+  EXPECT_EQ(json::build(source), "[1,2,3]");
+}
+
+TEST(BasicTests, NullCharPointer) {
+  const char* null_value = nullptr;
+  EXPECT_EQ(json::build({{"value", null_value}}), R"%({"value":null})%");
+  EXPECT_EQ(json::build(json::value(null_value)), "null");
+
+  ExpectRuntimeErrorMessage([null_value]() { static_cast<void>(json::build({{null_value, 1}})); },
+                            "Failed: nullptr != field.name.data()");
+}
+
+TEST(BasicTests, IntegerTypes) {
+  enum unscoped_enum { unscoped_value = 7 };
+  const json::value source = json::array(std::vector<json::value>{static_cast<signed char>(-1),
+                                                                  static_cast<short>(-2),
+                                                                  -3l,
+                                                                  -4ll,
+                                                                  5ul,
+                                                                  6ull,
+                                                                  unscoped_value,
+                                                                  std::numeric_limits<int64_t>::min(),
+                                                                  std::numeric_limits<uint64_t>::max()});
+
+  EXPECT_EQ(json::build(source), "[-1,-2,-3,-4,5,6,7,-9223372036854775808,18446744073709551615]");
+}
+
+TEST(BasicTests, ValuesFromLvalueContainerAreBorrowed) {
+  std::vector<json::value> values{1, "two"};
+  const json::value source = json::array(values);
+  values[0] = 3;
+
+  EXPECT_EQ(json::build(source), R"%([3,"two"])%");
+  EXPECT_EQ(json::build({{"source", source}, {"values", values[1]}}), R"%({"source":[3,"two"],"values":"two"})%");
+}
+
+TEST(BasicTests, BuildIntoExistingStringAndDocument) {
+  std::string out;
+  out.reserve(256);
+  const char* const data = out.data();
+  json::build({{"name", "value"}}, out);
+  EXPECT_EQ(out, R"%({"name":"value"})%");
+  json::build(json::array({1, 2}), out);
+  EXPECT_EQ(out, "[1,2]");
+  EXPECT_EQ(out.data(), data);
+
+  char buffer[1024];
+  rapidjson::MemoryPoolAllocator<> allocator(buffer, sizeof(buffer));
+  rapidjson::Document document(&allocator);
+  const size_t capacity = allocator.Capacity();
+  json::build_document({{"name", "value"}, {"array", {{1, 2, 3}}}}, document);
+  EXPECT_EQ(json::stringify(document), R"%({"name":"value","array":[1,2,3]})%");
+  // no chunk allocated beyond the user buffer
+  EXPECT_EQ(allocator.Capacity(), capacity);
+}
+
+TEST(BasicTests, DocumentContainersHaveExactCapacity) {
+  const std::vector<int32_t> values{1, 2, 3};
+  const auto document = json::build_document({{"list", {{1, 2}}}, {"vector", json::array(values)}});
+
+  EXPECT_EQ(document["list"].Capacity(), 2u);
+  EXPECT_EQ(document["vector"].Capacity(), 3u);
 }
 
 }  // namespace

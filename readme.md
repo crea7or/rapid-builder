@@ -118,12 +118,9 @@ const auto rapid_json_object =
 
 ## Limitations
 
-1. **This library is not intended to work with short-lived local temporaries created directly inside the same expression, unless the whole JSON is consumed immediately.**
+1. **The builder borrows its input: strings, object names and `json::value` objects passed to it must outlive the build call.**
 
-   This statement is confirmed by the code:
-   - `builder::field_holder` stores object field names as `std::string_view` and values as references in [builder.h](C:\Sources\rapid-builder\builder.h:97).
-   - `builder::value_holder` stores strings as `std::string_view` in [builder.h](C:\Sources\rapid-builder\builder.h:144).
-   - `build(...)` writes those borrowed views directly through `writer.String(...)` and `writer.Key(...)` in [builder.cpp](C:\Sources\rapid-builder\builder.cpp:72) and [builder.cpp](C:\Sources\rapid-builder\builder.cpp:77).
+   Strings are stored as `std::string_view`, object fields of initializer lists keep references to their values, and a `json::value` used inside another builder input is referenced, not copied. This is what makes the builder allocation-free for one-shot calls.
 
    Safe one-shot usage:
 
@@ -137,19 +134,14 @@ const auto rapid_json_object =
    Not intended for persisted builder input:
 
    ```c++
-   // BAD: temporaries are created inline and then die immediately
-   const json::value bad = json::object(std::vector<std::pair<std::string, json::value>>{
-       {std::string("field"), std::string("value")}
-   });
+   // BAD: the temporary string dies immediately, json::value keeps a view of it.
+   // json::value(std::string&&) is deleted, so this does not compile.
+   const json::value bad = std::string("value");
    ```
 
 2. **If the library is used to build a `rapidjson::Value` or `rapidjson::Document`, the input parameters must outlive the returned RapidJSON object.**
 
-   This is also confirmed by the code:
-   - `build_value(...)` stores strings with `rapidjson::StringRef(...)` in [builder.cpp](C:\Sources\rapid-builder\builder.cpp:115).
-   - Object member names are added with `rapidjson::StringRef(...)` in [builder.cpp](C:\Sources\rapid-builder\builder.cpp:124).
-   - `build_document(...)` returns a `rapidjson::Document` produced from the same borrowed builder tree in [builder.cpp](C:\Sources\rapid-builder\builder.cpp:223).
-   - The public header already states this contract for `build_value(...)` and `build_document(...)` in [builder.h](C:\Sources\rapid-builder\builder.h:358) and [builder.h](C:\Sources\rapid-builder\builder.h:370).
+   String values and object member names are added to RapidJSON as `rapidjson::StringRef`, without copying.
 
    Intended usage:
 
@@ -162,7 +154,7 @@ const auto rapid_json_object =
    });
 
    const auto doc = json::build_document(source);
-   // `source`, `field_name`, and `field_value` must stay alive while `doc` is used.
+   // `source` and `field_value` must stay alive while `doc` is used.
    ```
 
    Not intended:
@@ -175,9 +167,21 @@ const auto rapid_json_object =
 
 3. **Persisted trees should be built with `json::value`, `json::object(...)`, and `json::array(...)`.**
 
-   One-shot `json::build(...)`, `json::build_value(...)`, and `json::build_document(...)` calls may use initializer-list syntax directly. If you want to keep an intermediate tree around, build it as `json::value` first and keep the underlying input data alive for as long as needed.
+   - `json::array({...})` copies the initializer list items into the returned value, because initializer list items die at the end of the expression. Inside a one-shot `build` call use nested `{{...}}` syntax instead: it is not copied.
+   - `json::object(map)` and `json::array(container)` borrow names and values from an lvalue container. For an rvalue container, values are moved and owning names (e.g. `std::string`) are copied.
 
 4. Containers can be directly used as arrays, but you cannot use `rapidjson::Value` in the same way.
+
+5. NaN and infinite numbers are written as `null`: they are not valid JSON numbers.
+
+6. A two-element list whose first element is a string is an object field: `{"key", {{"a", "b"}}}` is `{"key":{"a":"b"}}`. Use `json::array({"a", "b"})` for an array of two strings.
+
+## Performance Notes
+
+- `json::build(..., std::string& out)` writes into an existing string and reuses its capacity. The writer and its buffer are kept per thread between the calls.
+- `json::build_document(..., rapidjson::Document& document)` builds into an existing document with its allocator, e.g. a `rapidjson::MemoryPoolAllocator` over a user buffer, instead of the default 64KB chunk.
+- Arrays and objects of documents are allocated with the exact capacity.
+- Define `RAPIDJSON_SSE2` (or `RAPIDJSON_SSE42` / `RAPIDJSON_NEON`) for all translation units to scan strings with SIMD in the writer. The CMake option `RAPIDJSON_BUILDER_SSE2` does this for x86-64.
 
 ---
 
@@ -258,7 +262,7 @@ make
 
 ## Usage
 
-Simply copy `builder.h` and `builder.cpp` into your project.
+Simply copy `builder.h` and `builder.cpp` into your project. Requires RapidJSON 1.1.0 or later.
 
 ---
 

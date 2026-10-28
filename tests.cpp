@@ -746,6 +746,76 @@ TEST(BasicTests, RvalueContainers) {
   EXPECT_EQ(json::build(borrowed_names), R"%({"view":1})%");
 }
 
+TEST(BasicTests, ConstRvalueContainersCopyValues) {
+  std::vector<json::value> values{42, json::array({1, 2})};
+  std::map<std::string, json::value> fields{{"answer", 42}, {"nested", json::array({1, 2})}};
+  const auto array_source = json::array(std::move(std::as_const(values)));
+  const auto object_source = json::object(std::move(std::as_const(fields)));
+  values[0] = 99;
+  values[1] = nullptr;
+  fields.at("answer") = 99;
+  fields.at("nested") = nullptr;
+
+  EXPECT_EQ(json::build(array_source), "[42,[1,2]]");
+  EXPECT_EQ(json::stringify(json::build_document(array_source)), "[42,[1,2]]");
+  EXPECT_EQ(json::build(object_source), R"%({"answer":42,"nested":[1,2]})%");
+  EXPECT_EQ(json::stringify(json::build_document(object_source)), R"%({"answer":42,"nested":[1,2]})%");
+}
+
+TEST(BasicTests, ConstTemporaryContainersOutliveTheirSources) {
+  const auto array_source = json::array([]() -> const std::vector<json::value> {
+    return {42, json::array({1, 2})};
+  }());
+  const auto object_source = json::object([]() -> const std::map<std::string, json::value> {
+    return {{"answer", 42}, {"nested", json::array({1, 2})}};
+  }());
+  // initializer_list elements are const, even when the container itself is an rvalue.
+  const auto list_source = json::array(std::initializer_list<json::value>{42, json::array({1, 2})});
+  ClobberStack();
+
+  EXPECT_EQ(json::build(array_source), "[42,[1,2]]");
+  EXPECT_EQ(json::stringify(json::build_document(array_source)), "[42,[1,2]]");
+  EXPECT_EQ(json::build(object_source), R"%({"answer":42,"nested":[1,2]})%");
+  EXPECT_EQ(json::stringify(json::build_document(object_source)), R"%({"answer":42,"nested":[1,2]})%");
+  EXPECT_EQ(json::build(list_source), "[42,[1,2]]");
+  EXPECT_EQ(json::stringify(json::build_document(list_source)), "[42,[1,2]]");
+}
+
+struct InlineObjectKey {
+  char text[32];
+  operator std::string_view() const noexcept { return text; }
+};
+
+TEST(BasicTests, RvalueObjectsCopyInlineKeys) {
+  static_assert(std::is_trivially_copyable_v<InlineObjectKey>);
+  using fields_t = std::vector<std::pair<InlineObjectKey, int>>;
+  fields_t fields{{InlineObjectKey{"original"}, 1}};
+  const auto source = json::object(std::move(fields));
+  fields[0].first.text[0] = 'X';
+  const auto temporary_source = json::object(fields_t{{InlineObjectKey{"original"}, 1}});
+  ClobberStack();
+
+  EXPECT_EQ(json::build(source), R"%({"original":1})%");
+  EXPECT_EQ(json::stringify(json::build_document(source)), R"%({"original":1})%");
+  EXPECT_EQ(json::build(temporary_source), R"%({"original":1})%");
+  EXPECT_EQ(json::stringify(json::build_document(temporary_source)), R"%({"original":1})%");
+  json::value copied = temporary_source;
+  const json::value moved = std::move(copied);
+  EXPECT_EQ(json::build(moved), R"%({"original":1})%");
+}
+
+TEST(BasicTests, RvalueObjectsKeepBorrowingViewAndPointerKeys) {
+  char name[] = "key";
+  const auto view_source = json::object(std::vector<std::pair<std::string_view, int>>{{name, 1}});
+  const auto pointer_source = json::object(std::vector<std::pair<const char*, int>>{{name, 1}});
+  const auto mutable_pointer_source = json::object(std::vector<std::pair<char*, int>>{{name, 1}});
+  name[0] = 'K';
+
+  EXPECT_EQ(json::build(view_source), R"%({"Key":1})%");
+  EXPECT_EQ(json::build(pointer_source), R"%({"Key":1})%");
+  EXPECT_EQ(json::build(mutable_pointer_source), R"%({"Key":1})%");
+}
+
 TEST(BasicTests, ArrayFromInitializerListKeepsBorrowedValues) {
   json::value inner = 5;
   const json::value source = json::array({inner, {{"name", inner}}});

@@ -201,6 +201,8 @@ struct value_holder final {
   value_holder(const value& value) noexcept;
   // temporary json::value is moved in
   value_holder(value&& value) noexcept;
+  // a const temporary cannot be moved, so copy its storage instead of borrowing it
+  value_holder(const value&& value);
 
   // object from initializer_list
   value_holder(std::initializer_list<field_holder> value) noexcept
@@ -331,6 +333,8 @@ inline builder::value_holder::value_holder(const value& value) noexcept
 
 inline builder::value_holder::value_holder(value&& value) noexcept : holder(std::move(value.holder_.holder)) {}
 
+inline builder::value_holder::value_holder(const value&& value) : holder(value.internal().holder) {}
+
 /**
  * \brief helper function to convert container explicitly to Array
  */
@@ -363,10 +367,12 @@ value object(MAP&& map) {
                   "Map key type must be convertible to std::string_view");
     if constexpr (!std::is_rvalue_reference_v<MAP&&>) {
       fields.push_back(builder::owned_field_holder{std::string_view(name), {}, builder::value_holder(field_value)});
-    } else if constexpr (std::is_trivially_copyable_v<name_t>) {
+    } else if constexpr (std::is_same_v<name_t, std::string_view> || std::is_same_v<name_t, const char*> ||
+                         std::is_same_v<name_t, char*>) {
       fields.push_back(
           builder::owned_field_holder{std::string_view(name), {}, builder::value_holder(std::move(field_value))});
     } else {
+      // Even trivially copyable key types can own inline character storage.
       fields.push_back(builder::owned_field_holder{
           {}, std::string(std::string_view(name)), builder::value_holder(std::move(field_value))});
     }

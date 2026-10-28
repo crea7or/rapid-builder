@@ -168,7 +168,7 @@ const auto rapid_json_object =
 3. **Persisted trees should be built with `json::value`, `json::object(...)`, and `json::array(...)`.**
 
    - `json::array({...})` copies the initializer list items into the returned value, because initializer list items die at the end of the expression. Inside a one-shot `build` call use nested `{{...}}` syntax instead: it is not copied.
-   - `json::object(map)` and `json::array(container)` borrow names and values from an lvalue container. For an rvalue container, values are moved and owning names (e.g. `std::string`) are copied.
+   - `json::object(map)` and `json::array(container)` borrow names and values from an lvalue container. For an rvalue container, `json::value` elements are moved, or copied when const. Rvalue object keys of type `std::string_view`, `const char*`, or `char*` remain borrowed; other key types are copied into owned strings. String values remain borrowed.
 
 4. Containers can be directly used as arrays, but you cannot use `rapidjson::Value` in the same way.
 

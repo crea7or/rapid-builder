@@ -27,7 +27,10 @@ using ::testing::TestInfo;
 using ::testing::TestPartResult;
 using ::testing::UnitTest;
 
+#include <array>
+#include <atomic>
 #include <cmath>
+#include <forward_list>
 #include <functional>
 #include <iostream>
 #include <limits>
@@ -36,6 +39,7 @@ using ::testing::UnitTest;
 #include <string_view>
 #include <set>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -589,6 +593,247 @@ TEST(BasicTests, DocumentContainersHaveExactCapacity) {
 
   EXPECT_EQ(document["list"].Capacity(), 2u);
   EXPECT_EQ(document["vector"].Capacity(), 3u);
+}
+
+TEST(BasicTests, ValueAssignmentOfSameKind) {
+  const std::map<std::string, int32_t> first_map{{"a", 1}};
+  const std::map<std::string, int32_t> second_map{{"b", 2}};
+  const std::vector<int32_t> first_vector{1};
+  const std::vector<int32_t> second_vector{2, 3};
+
+  json::value object_value = json::object(first_map);
+  const json::value other_object = json::object(second_map);
+  object_value = other_object;
+  EXPECT_EQ(json::build(object_value), R"%({"b":2})%");
+  object_value = json::object(first_map);
+  EXPECT_EQ(json::build(object_value), R"%({"a":1})%");
+
+  json::value array_value = json::array(first_vector);
+  const json::value other_array = json::array(second_vector);
+  array_value = other_array;
+  EXPECT_EQ(json::build(array_value), "[2,3]");
+  array_value = json::array(first_vector);
+  EXPECT_EQ(json::build(array_value), "[1]");
+
+  // self assignment keeps the value
+  json::value& same_array = array_value;
+  array_value = same_array;
+  array_value = std::move(same_array);
+  EXPECT_EQ(json::build(array_value), "[1]");
+}
+
+TEST(BasicTests, ArrayHolderOverInitializerList) {
+  // the backing array of a named initializer_list lives until the end of the scope
+  const std::initializer_list<json::builder::value_holder> items{1, 2};
+  const json::builder::array_holder list(items);
+
+  const json::builder::array_holder copy(list);
+  EXPECT_EQ(copy.begin(), items.begin());
+  EXPECT_EQ(copy.size(), 2u);
+
+  json::builder::array_holder assigned(std::vector<json::builder::value_holder>{3});
+  assigned = list;
+  EXPECT_EQ(assigned.begin(), items.begin());
+  EXPECT_EQ(assigned.size(), 2u);
+
+  json::builder::array_holder owned(std::vector<json::builder::value_holder>{4, 5, 6});
+  const json::builder::value_holder* owned_data = owned.begin();
+  json::builder::array_holder moved(std::move(owned));
+  EXPECT_EQ(moved.begin(), owned_data);
+  EXPECT_EQ(owned.size(), 0u);
+  assigned = std::move(moved);
+  EXPECT_EQ(assigned.begin(), owned_data);
+  EXPECT_EQ(assigned.size(), 3u);
+  EXPECT_EQ(moved.size(), 0u);
+
+  const json::builder::array_holder owned_copy(assigned);
+  EXPECT_NE(owned_copy.begin(), assigned.begin());
+  EXPECT_EQ(json::build(json::array(std::vector<json::builder::value_holder>(owned_copy.begin(), owned_copy.end()))),
+            "[4,5,6]");
+}
+
+TEST(BasicTests, FloatingPointValues) {
+  EXPECT_EQ(json::build(json::value(1.5)), "1.5");
+  EXPECT_EQ(json::build(json::value(2.5f)), "2.5");
+  EXPECT_EQ(json::build(json::value(std::numeric_limits<double>::quiet_NaN())), "null");
+
+  const auto document = json::build_document(json::value(-0.25));
+  ASSERT_TRUE(document.IsDouble());
+  EXPECT_EQ(document.GetDouble(), -0.25);
+}
+
+TEST(BasicTests, BorrowedValueInDocumentAndValue) {
+  rapidjson::Document document;
+  const std::vector<int32_t> values{1, 2};
+  const json::value inner = json::array(values);
+
+  const auto built_document = json::build_document({{"inner", inner}, {"list", {{inner, inner}}}});
+  const auto built_value = json::build_value({inner, inner}, document.GetAllocator());
+
+  EXPECT_EQ(json::stringify(built_document), R"%({"inner":[1,2],"list":[[1,2],[1,2]]})%");
+  ASSERT_TRUE(built_value.IsArray());
+  ASSERT_EQ(built_value.Size(), 2u);
+  EXPECT_EQ(built_value[1][1].GetInt(), 2);
+}
+
+TEST(BasicTests, InitializerListArrayOverloads) {
+  rapidjson::Document allocator_owner;
+  const auto value = json::build_value({1, "two", nullptr}, allocator_owner.GetAllocator());
+  ASSERT_TRUE(value.IsArray());
+  ASSERT_EQ(value.Size(), 3u);
+  EXPECT_STREQ(value[1].GetString(), "two");
+
+  rapidjson::Document document;
+  json::build_document({1, 2}, document);
+  EXPECT_EQ(json::stringify(document), "[1,2]");
+  // building into the same document replaces its content
+  json::build_document(json::array({3}), document);
+  EXPECT_EQ(json::stringify(document), "[3]");
+
+  std::string out;
+  json::build({true, false}, out);
+  EXPECT_EQ(out, "[true,false]");
+  EXPECT_EQ(json::build({1, {{"name", "value"}}}), R"%([1,{"name":"value"}])%");
+  EXPECT_EQ(json::stringify(json::build_document({1, 2})), "[1,2]");
+}
+
+TEST(BasicTests, LargeJsonReleasesThreadBuffer) {
+  const std::string large(2 * 1024 * 1024, 'x');
+  const auto json_text = json::build({{"large", large}});
+  EXPECT_EQ(json_text.size(), large.size() + 12);
+  EXPECT_EQ(json::stringify(json::build_document({{"large", large}})), json_text);
+  EXPECT_EQ(json::build({{"small", 1}}), R"%({"small":1})%");
+}
+
+TEST(BasicTests, OtherContainers) {
+  const std::forward_list<int32_t> forward_list{1, 2, 3};
+  const std::list<std::string> list{"a", "b"};
+  const std::array<double, 2> doubles{0.5, 1.5};
+  const std::vector<bool> bools{true, false};
+  const std::vector<int32_t> empty_vector;
+  const std::map<std::string, int32_t> empty_map;
+  const std::map<const char*, int32_t> char_map{{"key", 1}};
+
+  EXPECT_EQ(json::build({{"forward_list", json::array(forward_list)},
+                         {"list", json::array(list)},
+                         {"doubles", json::array(doubles)},
+                         {"bools", json::array(bools)},
+                         {"empty_vector", json::array(empty_vector)},
+                         {"empty_map", json::object(empty_map)},
+                         {"char_map", json::object(char_map)}}),
+            R"%({"forward_list":[1,2,3],"list":["a","b"],"doubles":[0.5,1.5],"bools":[true,false],)%"
+            R"%("empty_vector":[],"empty_map":{},"char_map":{"key":1}})%");
+}
+
+TEST(BasicTests, RvalueContainers) {
+  // one-shot: rvalue containers live until the end of the full expression
+  EXPECT_EQ(json::build(json::array(std::vector<std::string>{"a", "b"})), R"%(["a","b"])%");
+  EXPECT_EQ(json::build(json::array(std::vector<bool>{true})), "[true]");
+
+  // persisted: json::value items are moved, owning names are copied
+  const std::vector<int32_t> values{1, 2};
+  const json::value array_source = json::array(std::vector<json::value>{json::array(values), "text", 3});
+  const json::value object_source = json::object(std::map<std::string, json::value>{
+      {"", 1}, {"name longer than the small string buffer", json::array(values)}});
+  const json::value borrowed_names =
+      json::object(std::vector<std::pair<std::string_view, int32_t>>{{"view", 1}});
+  ClobberStack();
+
+  EXPECT_EQ(json::build(array_source), R"%([[1,2],"text",3])%");
+  EXPECT_EQ(json::build(object_source), R"%({"":1,"name longer than the small string buffer":[1,2]})%");
+  EXPECT_EQ(json::stringify(json::build_document(object_source)),
+            R"%({"":1,"name longer than the small string buffer":[1,2]})%");
+  EXPECT_EQ(json::build(borrowed_names), R"%({"view":1})%");
+}
+
+TEST(BasicTests, ArrayFromInitializerListKeepsBorrowedValues) {
+  json::value inner = 5;
+  const json::value source = json::array({inner, {{"name", inner}}});
+  inner = 6;
+
+  EXPECT_EQ(json::build(source), R"%([6,{"name":6}])%");
+
+  ExpectRuntimeErrorMessage([]() { static_cast<void>(json::array({{{nullptr, 1}}})); },
+                            "Failed: nullptr != field.name.data()");
+}
+
+TEST(BasicTests, BuildAfterException) {
+  EXPECT_THROW(json::build({{"array", {{1, {{"name", 1}, {nullptr, 2}}}}}}), std::runtime_error);
+  EXPECT_THROW(json::build_document({{"array", {{1, {{nullptr, 2}}}}}}), std::runtime_error);
+
+  EXPECT_EQ(json::build({{"name", "value"}}), R"%({"name":"value"})%");
+  EXPECT_EQ(json::stringify(json::build_document({{"name", "value"}})), R"%({"name":"value"})%");
+}
+
+TEST(BasicTests, StringEscaping) {
+  const std::string_view empty_view;
+  const std::string with_zero("a\0b", 3);
+  const std::string text =
+      "long text to use the SIMD scan \"quoted\" back\\slash\ttab\nnew line \x01 control, \xD0\xBF\xD1\x80\xD0\xB8";
+
+  const std::string expected =
+      "{\"empty\":\"\",\"zero\":\"a\\u0000b\","
+      "\"text\":\"long text to use the SIMD scan \\\"quoted\\\" back\\\\slash\\ttab\\nnew line \\u0001 control, "
+      "\xD0\xBF\xD1\x80\xD0\xB8\",\"key \\\"quoted\\\"\":1}";
+  EXPECT_EQ(json::build({{"empty", empty_view}, {"zero", with_zero}, {"text", text}, {"key \"quoted\"", 1}}),
+            expected);
+
+  const auto document = json::build_document({{"zero", with_zero}});
+  ASSERT_EQ(document["zero"].GetStringLength(), 3u);
+  EXPECT_EQ(std::string(document["zero"].GetString(), 3), with_zero);
+}
+
+TEST(BasicTests, MoreIntegerTypes) {
+  const std::vector<json::value> values{static_cast<unsigned char>(255),
+                                        static_cast<int8_t>(-128),
+                                        static_cast<uint16_t>(65535),
+                                        u'A',
+                                        std::numeric_limits<int32_t>::min(),
+                                        std::numeric_limits<uint32_t>::max()};
+  EXPECT_EQ(json::build(json::array(values)), "[255,-128,65535,65,-2147483648,4294967295]");
+
+  const auto document = json::build_document({{"int64", std::numeric_limits<int64_t>::min()},
+                                              {"uint64", std::numeric_limits<uint64_t>::max()},
+                                              {"bool", true}});
+  ASSERT_TRUE(document["int64"].IsInt64());
+  EXPECT_EQ(document["int64"].GetInt64(), std::numeric_limits<int64_t>::min());
+  ASSERT_TRUE(document["uint64"].IsUint64());
+  EXPECT_EQ(document["uint64"].GetUint64(), std::numeric_limits<uint64_t>::max());
+  EXPECT_TRUE(document["bool"].GetBool());
+}
+
+TEST(BasicTests, DeepNesting) {
+  constexpr int depth = 100;
+  json::value nested = 0;
+  for (int i = 0; i < depth; ++i) {
+    nested = json::array(std::vector<json::value>{nested});
+  }
+
+  const std::string expected = std::string(depth, '[') + "0" + std::string(depth, ']');
+  EXPECT_EQ(json::build(nested), expected);
+  EXPECT_EQ(json::stringify(json::build_document(nested)), expected);
+}
+
+TEST(BasicTests, BuildFromManyThreads) {
+  static constexpr int thread_count = 4;
+  static constexpr int iterations = 1000;
+  std::atomic<int> failures{0};
+  std::vector<std::thread> threads;
+  for (int thread_index = 0; thread_index < thread_count; ++thread_index) {
+    threads.emplace_back([thread_index, &failures]() {
+      const std::string expected = R"%({"thread":)%" + std::to_string(thread_index) + R"%(,"list":[1,2,3]})%";
+      for (int i = 0; i < iterations; ++i) {
+        if (json::build({{"thread", thread_index}, {"list", {{1, 2, 3}}}}) != expected ||
+            json::stringify(json::build_document({{"thread", thread_index}, {"list", {{1, 2, 3}}}})) != expected) {
+          ++failures;
+        }
+      }
+    });
+  }
+  for (auto& thread : threads) {
+    thread.join();
+  }
+  EXPECT_EQ(failures.load(), 0);
 }
 
 }  // namespace

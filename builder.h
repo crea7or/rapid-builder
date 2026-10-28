@@ -73,6 +73,11 @@ template <typename T>
 inline constexpr bool is_integer_v =
     (std::is_integral_v<T> && !std::is_same_v<T, bool>) || is_unscoped_enum<T>::value;
 
+// string types are accepted by template constructors only: templates don't take part in braced list
+// initialization, so {{1, 2}} is an array and {{"name", 1}} is an object, not std::string{...}
+template <typename S, typename T>
+using if_same_t = std::enable_if_t<std::is_same_v<S, T>, int>;
+
 template <typename T>
 constexpr auto to_integer(const T value) noexcept {
   if constexpr (std::is_enum_v<T>) {
@@ -90,7 +95,7 @@ constexpr auto to_integer(const T value) noexcept {
  */
 struct array_holder final {
   array_holder() noexcept = default;
-  array_holder(std::initializer_list<value_holder> values) noexcept : data_(values.begin()), size_(values.size()) {}
+  array_holder(std::initializer_list<value_holder> values) noexcept;
   explicit array_holder(std::vector<value_holder>&& values) noexcept;
   array_holder(const array_holder& src);
   array_holder(array_holder&& src) noexcept;
@@ -120,9 +125,11 @@ struct field_holder final {
   constexpr field_holder(const char* name, const value_holder& value) noexcept
       : name(name ? std::string_view(name) : std::string_view(nullptr, 0)), value(value) {}
   // name as std::string_view
-  constexpr field_holder(std::string_view name, const value_holder& value) noexcept : name(name), value(value) {}
+  template <typename S, if_same_t<S, std::string_view> = 0>
+  constexpr field_holder(const S name, const value_holder& value) noexcept : name(name), value(value) {}
   // name as std::string
-  field_holder(const std::string& name, const value_holder& value) noexcept : name(name), value(value) {}
+  template <typename S, if_same_t<S, std::string> = 0>
+  field_holder(const S& name, const value_holder& value) noexcept : name(name), value(value) {}
   field_holder(const field_holder& src) = default;
   field_holder(field_holder&& src) = default;
   ~field_holder() = default;
@@ -176,9 +183,11 @@ struct value_holder final {
   // const char*, nullptr is stored as json null
   value_holder(const char* value) noexcept : holder(value ? holder_t(std::string_view(value)) : holder_t(nullptr)) {}
   // const std::string& value
-  value_holder(const std::string& value) noexcept : holder(std::string_view(value)) {}
+  template <typename S, if_same_t<S, std::string> = 0>
+  value_holder(const S& value) noexcept : holder(std::string_view(value)) {}
   // std::string_view value
-  constexpr value_holder(std::string_view value) noexcept : holder(value) {}
+  template <typename S, if_same_t<S, std::string_view> = 0>
+  constexpr value_holder(const S value) noexcept : holder(value) {}
   // integral types and unscoped enums as int64_t or uint64_t
   template <typename T, std::enable_if_t<is_integer_v<T>, int> = 0>
   constexpr value_holder(const T value) noexcept
@@ -227,6 +236,9 @@ struct owned_field_holder final {
   std::string owned_name;
   value_holder value;
 };
+
+inline array_holder::array_holder(std::initializer_list<value_holder> values) noexcept
+    : data_(values.begin()), size_(values.size()) {}
 
 inline array_holder::array_holder(std::vector<value_holder>&& values) noexcept
     : storage_(std::move(values)), data_(storage_.data()), size_(storage_.size()) {}
@@ -278,10 +290,13 @@ class value final {
   constexpr value(const bool v) noexcept : holder_(v) {}
   constexpr value(const std::nullptr_t v) noexcept : holder_(v) {}
   value(const char* v) noexcept : holder_(v) {}
-  value(const std::string& v) noexcept : holder_(v) {}
+  template <typename S, builder::if_same_t<S, std::string> = 0>
+  value(const S& v) noexcept : holder_(v) {}
   // json::value keeps std::string_view of the string, a temporary would dangle
-  value(std::string&& v) = delete;
-  constexpr value(std::string_view v) noexcept : holder_(v) {}
+  template <typename S, builder::if_same_t<S, std::string> = 0>
+  value(S&& v) = delete;
+  template <typename S, builder::if_same_t<S, std::string_view> = 0>
+  constexpr value(const S v) noexcept : holder_(v) {}
   template <typename T, std::enable_if_t<builder::is_integer_v<T>, int> = 0>
   constexpr value(const T v) noexcept : holder_(v) {}
   constexpr value(const double v) noexcept : holder_(v) {}

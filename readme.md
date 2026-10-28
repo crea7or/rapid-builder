@@ -168,7 +168,7 @@ const auto rapid_json_object =
 3. **Persisted trees should be built with `json::value`, `json::object(...)`, and `json::array(...)`.**
 
    - `json::array({...})` copies the initializer list items into the returned value, because initializer list items die at the end of the expression. Inside a one-shot `build` call use nested `{{...}}` syntax instead: it is not copied.
-   - `json::object(map)` and `json::array(container)` borrow names and values from an lvalue container. For an rvalue container, `json::value` elements are moved, or copied when const. Rvalue object keys of type `std::string_view`, `const char*`, or `char*` remain borrowed; other key types are copied into owned strings. String values remain borrowed.
+   - `json::object(map)` and `json::array(container)` borrow names and values from an lvalue container. For an rvalue container, `json::value` elements are moved, or copied when const. `std::string` elements of an rvalue container are moved into the value, or copied when const, so `json::array(std::vector<std::string>{...})` can be kept. Rvalue object keys of type `std::string_view`, `const char*`, or `char*` remain borrowed; other key types are copied into owned strings. A null `const char*` or `char*` key throws `std::runtime_error`.
 
 4. Containers can be directly used as arrays, but you cannot use `rapidjson::Value` in the same way.
 
@@ -300,6 +300,22 @@ make
 ./bin/bench
 ./bin/tests
 ```
+
+---
+
+## Tests and Coverage
+
+50 unit tests (GoogleTest) in `tests.cpp`. They pass with MSVC 19.44 (Release, Debug, and Release with AddressSanitizer) and clang-cl. In Debug builds, the 3 allocation-count tests are skipped, because MSVC debug iterators allocate in every container.
+
+Source-based coverage of the library, measured with clang-cl (`-fprofile-instr-generate -fcoverage-mapping`) and `llvm-cov report`, 2026-10-28:
+
+| File          | Lines           | Branches      | Functions     | Regions         |
+|---------------|-----------------|---------------|---------------|-----------------|
+| `builder.h`   | 100% (127/127)  | 100% (22/22)  | 100% (61/61)  | 100% (138/138)  |
+| `builder.cpp` | 96.65% (202/209)| 98.00% (49/50)| 100% (31/31)  | 92.77% (77/83)  |
+| **Total**     | 97.92% (329/336)| 98.61% (71/72)| 100% (92/92)  | 97.29% (215/221)|
+
+All 7 lines left in `builder.cpp` are unreachable: closing braces after `break` in the type switch, and the `default:` case for a valueless variant.
 
 ---
 

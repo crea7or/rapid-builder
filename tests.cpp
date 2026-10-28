@@ -30,12 +30,14 @@ using ::testing::UnitTest;
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <cstdlib>
 #include <forward_list>
 #include <functional>
 #include <iostream>
 #include <limits>
 #include <list>
 #include <map>
+#include <new>
 #include <string_view>
 #include <set>
 #include <string>
@@ -46,7 +48,39 @@ using ::testing::UnitTest;
 
 #include "builder.h"
 
+// operator new calls of the current thread, to check allocations of the builder
+// rapidjson allocators use malloc directly and are not counted
+thread_local size_t allocation_count = 0;
+
+void* operator new(std::size_t size) {
+  ++allocation_count;
+  if (void* memory = std::malloc(size ? size : 1)) {
+    return memory;
+  }
+  throw std::bad_alloc();
+}
+void operator delete(void* memory) noexcept {
+  std::free(memory);
+}
+void operator delete(void* memory, std::size_t) noexcept {
+  std::free(memory);
+}
+
 namespace {
+
+// debug iterators of MSVC allocate proxy objects in every container
+#if defined(_ITERATOR_DEBUG_LEVEL) && _ITERATOR_DEBUG_LEVEL != 0
+constexpr bool kCountAllocations = false;
+#else
+constexpr bool kCountAllocations = true;
+#endif
+
+template <typename Action>
+size_t CountAllocations(Action&& action) {
+  const size_t before = allocation_count;
+  action();
+  return allocation_count - before;
+}
 
 void ExpectRuntimeErrorMessage(const std::function<void()>& action, std::string_view expected_message) {
   try {
@@ -802,6 +836,133 @@ TEST(BasicTests, RvalueObjectsCopyInlineKeys) {
   json::value copied = temporary_source;
   const json::value moved = std::move(copied);
   EXPECT_EQ(json::build(moved), R"%({"original":1})%");
+}
+
+TEST(BasicTests, RvalueContainersOwnStrings) {
+  const std::string long_text(40, 'a');
+  std::vector<std::string> strings{"moved", long_text};
+  const std::vector<std::string> const_strings{"copied", long_text};
+  const json::value temporary_array = json::array(std::vector<std::string>{"short", long_text});
+  const json::value temporary_object =
+      json::object(std::map<std::string, std::string>{{"short", "text"}, {"long", long_text}});
+  const json::value moved_array = json::array(std::move(strings));
+  const json::value copied_array = json::array(std::move(const_strings));
+  ClobberStack();
+
+  const std::string long_json = "\"" + long_text + "\"";
+  EXPECT_EQ(json::build(temporary_array), "[\"short\"," + long_json + "]");
+  EXPECT_EQ(json::stringify(json::build_document(temporary_array)), "[\"short\"," + long_json + "]");
+  EXPECT_EQ(json::build(temporary_object), "{\"long\":" + long_json + ",\"short\":\"text\"}");
+  EXPECT_EQ(json::stringify(json::build_document(temporary_object)),
+            "{\"long\":" + long_json + ",\"short\":\"text\"}");
+  EXPECT_EQ(json::build(moved_array), "[\"moved\"," + long_json + "]");
+  EXPECT_EQ(json::build(copied_array), "[\"copied\"," + long_json + "]");
+  // const source is copied, not moved from
+  EXPECT_EQ(const_strings[0], "copied");
+
+  // lvalue json::value stays borrowed, owned strings of a temporary are kept by the persisted array
+  json::value copy = temporary_array;
+  const json::value nested = json::array({copy, json::array(std::vector<std::string>{"inner"})});
+  copy = nullptr;
+  EXPECT_EQ(json::build(nested), "[null,[\"inner\"]]");
+  EXPECT_EQ(json::build(json::value(temporary_array)), "[\"short\"," + long_json + "]");
+}
+
+TEST(BasicTests, NullCharPointerKeysThrow) {
+  std::vector<std::pair<const char*, int32_t>> fields{{"key", 1}, {nullptr, 2}};
+  EXPECT_THROW(json::object(fields), std::runtime_error);
+  EXPECT_THROW(json::object(std::move(fields)), std::runtime_error);
+  char* null_name = nullptr;
+  EXPECT_THROW(json::object(std::vector<std::pair<char*, int32_t>>{{null_name, 1}}), std::runtime_error);
+}
+
+TEST(BasicTests, ConstructorTraits) {
+  enum class scoped_enum { value };
+  // scoped enums are not implicitly converted to numbers
+  static_assert(!std::is_constructible_v<json::value, scoped_enum>);
+  // borrowing and moving don't allocate, copying a const temporary does, so it is not noexcept
+  static_assert(std::is_nothrow_constructible_v<json::builder::value_holder, const json::value&>);
+  static_assert(std::is_nothrow_constructible_v<json::builder::value_holder, json::value&&>);
+  static_assert(!std::is_nothrow_constructible_v<json::builder::value_holder, const json::value&&>);
+  static_assert(std::is_nothrow_move_constructible_v<json::builder::array_holder>);
+  static_assert(!std::is_nothrow_copy_constructible_v<json::builder::array_holder>);
+}
+
+TEST(BasicTests, RapidJsonAssertThrows) {
+  // the header installs a throwing RAPIDJSON_ASSERT unless the user provides one
+  const rapidjson::Value null_value;
+  EXPECT_THROW(static_cast<void>(null_value.GetInt()), std::runtime_error);
+  const auto document = json::build_document({1, 2});
+  EXPECT_THROW(static_cast<void>(document[rapidjson::SizeType{5}]), std::runtime_error);
+}
+
+TEST(BasicTests, TwoItemListStartingWithStringIsObject) {
+  // {{"x", "y"}} is the object {"x":"y"}, an array of two strings needs json::array
+  EXPECT_EQ(json::build({{"value", {{"x", "y"}}}}), R"%({"value":{"x":"y"}})%");
+  EXPECT_EQ(json::build({{"value", json::array({"x", "y"})}}), R"%({"value":["x","y"]})%");
+  EXPECT_EQ(json::build({{"value", {{"x", 1, 2}}}}), R"%({"value":["x",1,2]})%");
+}
+
+TEST(AllocationTests, BuildIntoExistingStringDoesNotAllocate) {
+  if (!kCountAllocations) {
+    GTEST_SKIP() << "debug iterators allocate";
+  }
+  const std::vector<int32_t> values{1, 2, 3};
+  const json::value source = json::array(values);
+  std::string out;
+  out.reserve(256);
+  // the first call of the thread creates the writer
+  json::build({{"warm", "up"}}, out);
+
+  EXPECT_EQ(CountAllocations([&] {
+              json::build({{"name", "value"}, {"array", {{1, 2, 3}}}, {"source", source}}, out);
+            }),
+            0u);
+  EXPECT_EQ(out, R"%({"name":"value","array":[1,2,3],"source":[1,2,3]})%");
+  // the returned string is the only allocation
+  EXPECT_EQ(CountAllocations([&] { out = json::build({{"name longer than the small string buffer", 1}}); }), 1u);
+}
+
+TEST(AllocationTests, ContainersAreWrappedWithOneAllocation) {
+  if (!kCountAllocations) {
+    GTEST_SKIP() << "debug iterators allocate";
+  }
+  const std::map<std::string, int32_t> map{{"name longer than the small string buffer", 1}, {"b", 2}};
+  const std::vector<int32_t> vector{1, 2, 3};
+  std::vector<json::value> values{1, json::array(vector)};
+
+  // names and values of lvalue containers are borrowed: one vector of fields or items
+  EXPECT_EQ(CountAllocations([&] { const json::value value = json::object(map); }), 1u);
+  EXPECT_EQ(CountAllocations([&] { const json::value value = json::array(vector); }), 1u);
+  // json::value items of an rvalue container are moved, not copied
+  EXPECT_EQ(CountAllocations([&] { const json::value value = json::array(std::move(values)); }), 1u);
+  // a stored initializer_list array copies one vector per container
+  EXPECT_EQ(CountAllocations([&] { const json::value value = json::array({1, {{2, 3}}, {{"name", 4}}}); }), 3u);
+}
+
+TEST(AllocationTests, ValueMoveDoesNotAllocate) {
+  if (!kCountAllocations) {
+    GTEST_SKIP() << "debug iterators allocate";
+  }
+  const std::map<std::string, int32_t> map{{"a", 1}};
+  json::value source = json::array({json::object(map), 2});
+
+  EXPECT_EQ(CountAllocations([&] {
+              json::value moved = std::move(source);
+              json::value assigned(nullptr);
+              assigned = std::move(moved);
+              source = std::move(assigned);
+            }),
+            0u);
+  EXPECT_EQ(json::build(source), R"%([{"a":1},2])%");
+  // a copy duplicates the vectors
+  EXPECT_EQ(CountAllocations([&] { const json::value copy = source; }), 2u);
+}
+
+TEST(BasicTests, TemporaryStringsAreRejected) {
+  static_assert(std::is_constructible_v<json::value, const std::string&>);
+  static_assert(!std::is_constructible_v<json::value, std::string&&>);
+  static_assert(!std::is_constructible_v<json::value, const std::string&&>);
 }
 
 TEST(BasicTests, RvalueObjectsKeepBorrowingViewAndPointerKeys) {

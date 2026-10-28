@@ -108,6 +108,11 @@ void RecursiveBuilder(Handler& handler, const builder::value_holder& value) {
       handler.String(text.data(), static_cast<rapidjson::SizeType>(text.size()), false);
       break;
     }
+    case index_of<std::string>: {
+      const std::string& text = get<std::string>(holder);
+      handler.String(text.data(), static_cast<rapidjson::SizeType>(text.size()), false);
+      break;
+    }
     case index_of<builder::object_holder>: {
       const auto& object = get<builder::object_holder>(holder);
       handler.StartObject();

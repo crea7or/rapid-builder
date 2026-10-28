@@ -172,7 +172,9 @@ struct value_holder final {
                                 object_holder,
                                 array_holder,
                                 // borrowed json::value
-                                const value_holder*>;
+                                const value_holder*,
+                                // string moved or copied out of an rvalue container
+                                std::string>;
 
   // bool
   constexpr value_holder(const bool value) noexcept : holder(value) {}
@@ -210,6 +212,10 @@ struct value_holder final {
 
   // object from object_holder
   value_holder(object_holder&& value) noexcept : holder(std::move(value)) {}
+
+  // owned string, for items of rvalue containers only: a borrowed one would dangle with the container
+  value_holder(std::in_place_type_t<std::string>, std::string value) noexcept
+      : holder(std::in_place_type<std::string>, std::move(value)) {}
 
   // array from initializer_list or container, safe to move out from
   // array_holder, because it's our internal structure
@@ -294,8 +300,8 @@ class value final {
   value(const char* v) noexcept : holder_(v) {}
   template <typename S, builder::if_same_t<S, std::string> = 0>
   value(const S& v) noexcept : holder_(v) {}
-  // json::value keeps std::string_view of the string, a temporary would dangle
-  template <typename S, builder::if_same_t<S, std::string> = 0>
+  // json::value keeps std::string_view of the string, a temporary (const one too) would dangle
+  template <typename S, builder::if_same_t<std::remove_const_t<S>, std::string> = 0>
   value(S&& v) = delete;
   template <typename S, builder::if_same_t<S, std::string_view> = 0>
   constexpr value(const S v) noexcept : holder_(v) {}
@@ -347,6 +353,27 @@ struct has_size<T, std::void_t<decltype(std::declval<const T&>().size())>> : std
 
 template <typename T>
 inline constexpr bool has_size_v = has_size<T>::value;
+
+// item of an rvalue container: json::value and std::string are moved in, or copied when const
+template <typename T>
+builder::value_holder rvalue_item(T&& item) {
+  if constexpr (std::is_same_v<std::remove_cv_t<std::remove_reference_t<T>>, std::string>) {
+    return builder::value_holder(std::in_place_type<std::string>, std::move(item));
+  } else {
+    return builder::value_holder(std::move(item));
+  }
+}
+
+// object name of a container key, a null char pointer is rejected like a null name in the initializer_list
+template <typename N>
+std::string_view key_name(const N& name) {
+  if constexpr (std::is_pointer_v<N>) {
+    if (nullptr == name) {
+      throw std::runtime_error("Failed: nullptr != name");
+    }
+  }
+  return std::string_view(name);
+}
 }  // namespace detail
 
 /**
@@ -366,15 +393,15 @@ value object(MAP&& map) {
     static_assert(std::is_convertible_v<decltype(name), std::string_view>,
                   "Map key type must be convertible to std::string_view");
     if constexpr (!std::is_rvalue_reference_v<MAP&&>) {
-      fields.push_back(builder::owned_field_holder{std::string_view(name), {}, builder::value_holder(field_value)});
+      fields.push_back(builder::owned_field_holder{detail::key_name(name), {}, builder::value_holder(field_value)});
     } else if constexpr (std::is_same_v<name_t, std::string_view> || std::is_same_v<name_t, const char*> ||
                          std::is_same_v<name_t, char*>) {
       fields.push_back(
-          builder::owned_field_holder{std::string_view(name), {}, builder::value_holder(std::move(field_value))});
+          builder::owned_field_holder{detail::key_name(name), {}, detail::rvalue_item(std::move(field_value))});
     } else {
       // Even trivially copyable key types can own inline character storage.
       fields.push_back(builder::owned_field_holder{
-          {}, std::string(std::string_view(name)), builder::value_holder(std::move(field_value))});
+          {}, std::string(detail::key_name(name)), detail::rvalue_item(std::move(field_value))});
     }
   }
 
@@ -394,7 +421,7 @@ value array(CONTAINER&& container) {
 
   if constexpr (std::is_rvalue_reference_v<CONTAINER&&>) {
     for (auto&& item : container) {
-      items.emplace_back(std::move(item));
+      items.push_back(detail::rvalue_item(std::move(item)));
     }
   } else {
     for (const auto& item : container) {

@@ -8,6 +8,12 @@ set(CMAKE_CXX_EXTENSIONS ON)
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
+# SIMD scan of strings for escaping in rapidjson::Writer, SSE2 is available on every x86-64 CPU
+option(RAPIDJSON_BUILDER_SSE2 "Enable RAPIDJSON_SSE2 on x86-64" ON)
+if(RAPIDJSON_BUILDER_SSE2 AND CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64|x86_64")
+  add_compile_definitions(RAPIDJSON_SSE2)
+endif()
+
 set(BENCH_SOURCES bench.cpp builder.h builder.cpp)
 
 #

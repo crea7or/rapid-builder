@@ -1,6 +1,6 @@
 # NEAT JSON BUILDER for RAPIDJSON
 
-The **Rapid Builder** provides a clean and readable way to create JSON using `std::initializer_list` (C++11 feature). With just three easy-to-use API calls—`BuildJson`, `BuildValue`, or `BuildDocument`—you can generate `std::string`, `rapidjson::Document`, or `rapidjson::Value` objects.
+The **Rapid Builder** provides a clean and readable way to create JSON using `std::initializer_list` (a C++11 feature). With three API calls - `json::build`, `json::build_value`, and `json::build_document` - you can generate `std::string`, `rapidjson::Value`, or `rapidjson::Document` objects.
 
 > **Note:** Rapid Builder requires **C++17** because it uses `std::string_view` and `std::variant`.
 
@@ -97,39 +97,91 @@ writer.EndArray();
 const std::string json(string_buffer.GetString(), string_buffer.Size());
 ```
 
-So I think that you get the point of Rapid Builder.
-**Nlohmann JSON library uses a similar approach** to build JSON, and I have included it in the benchmark section for comparison.
+So you get the point of Rapid Builder.
+**Nlohmann JSON uses a similar style** to build JSON, and it is included in the benchmark section for comparison.
 
 ---
 
 ## More Complex Examples
 
 ```c++
-  std::vector<int> values{1,2,3,4};
-  const auto rapid_json_object =
-        json::build({{"object", {{"some", "other"}, {"int", 0}}},
-                     {"from vector", json::array(values)},
-                     {"array of objects",
-                       {{"string", json::array({string_field_name, json::array({0, 1, 2}), "2"}),
-                       {{"name", "value"}, {"bool", false}}}}
-                     }});
+std::vector<int> values{1, 2, 3, 4};
+const auto rapid_json_object =
+    json::build({{"object", {{"some", "other"}, {"int", 0}}},
+                 {"from vector", json::array(values)},
+                 {"array of objects",
+                  {{"string", json::array({string_field_name, json::array({0, 1, 2}), "2"}),
+                    {{"name", "value"}, {"bool", false}}}}});
 ```
 
 ---
 
 ## Limitations
 
-1. **Do not use temporary variables!**
-   Rapid Builder internally uses `StringRef()` from RapidJSON. Temporaries will be destroyed before the JSON is fully built, leading to undefined behavior.
+1. **The builder borrows its input: strings, object names and `json::value` objects passed to it must outlive the build call.**
+
+   Strings are stored as `std::string_view`, object fields of initializer lists keep references to their values, and a `json::value` used inside another builder input is referenced, not copied. This is what makes the builder allocation-free for one-shot calls.
+
+   Safe one-shot usage:
 
    ```c++
-   // ❌ BAD EXAMPLE
-   const auto bad = json::build({
-       {std::string("field"), std::string("value")}
+   const auto json = json::build({
+       {"username", "my_username"},
+       {"password", "my_password"}
    });
    ```
 
-2. Containers can be directly used as arrays, but you cannot use `rapidjson::Value` in the same way.
+   Not intended for persisted builder input:
+
+   ```c++
+   // BAD: the temporary string dies immediately, json::value keeps a view of it.
+   // json::value(std::string&&) is deleted, so this does not compile.
+   const json::value bad = std::string("value");
+   ```
+
+2. **If the library is used to build a `rapidjson::Value` or `rapidjson::Document`, the input parameters must outlive the returned RapidJSON object.**
+
+   String values and object member names are added to RapidJSON as `rapidjson::StringRef`, without copying.
+
+   Intended usage:
+
+   ```c++
+   std::string field_name = "field";
+   std::string field_value = "value";
+
+   const json::value source = json::object(std::vector<std::pair<std::string, json::value>>{
+       {field_name, field_value}
+   });
+
+   const auto doc = json::build_document(source);
+   // `source` and `field_value` must stay alive while `doc` is used.
+   ```
+
+   Not intended:
+
+   ```c++
+   // BAD: the temporary input dies right after the call
+   const auto doc = json::build_document(
+       json::object(std::vector<std::pair<std::string, json::value>>{{"field", "value"}}));
+   ```
+
+3. **Persisted trees should be built with `json::value`, `json::object(...)`, and `json::array(...)`.**
+
+   - `json::array({...})` copies the initializer list items into the returned value, because initializer list items die at the end of the expression. Inside a one-shot `build` call use nested `{{...}}` syntax instead: it is not copied.
+   - `json::object(map)` and `json::array(container)` borrow names and values from an lvalue container. For an rvalue container, values are moved and owning names (e.g. `std::string`) are copied.
+
+4. Containers can be directly used as arrays, but you cannot use `rapidjson::Value` in the same way.
+
+5. NaN and infinite numbers are written as `null`: they are not valid JSON numbers.
+
+6. A two-element list whose first element is a string is an object field: `{"key", {{"a", "b"}}}` is `{"key":{"a":"b"}}`. Use `json::array({"a", "b"})` for an array of two strings.
+
+## Performance Notes
+
+- `json::build(..., std::string& out)` writes into an existing string and reuses its capacity. The writer and its buffer are kept per thread between the calls.
+- `json::build_document(..., rapidjson::Document& document)` builds into an existing document with its allocator, e.g. a `rapidjson::MemoryPoolAllocator` over a user buffer, instead of the default 64KB chunk.
+- Arrays and objects of documents are allocated with the exact capacity.
+- Define `RAPIDJSON_SSE2` (or `RAPIDJSON_SSE42` / `RAPIDJSON_NEON`) for all translation units to scan strings with SIMD in the writer. The CMake option `RAPIDJSON_BUILDER_SSE2` does this for x86-64.
 
 ---
 
@@ -140,17 +192,60 @@ Rapid Builder was tested against `rapidjson` and `nlohmann/json`.
 ### Google Benchmark
 
 ```
-BM_RapidbuilderCreateJson        - This builder (create JSON text)
-BM_RapidjsonCreateJson           - Regular rapidjson API (create JSON text)
-BM_NlohmannCreateJson             - Nlohmann JSON (create JSON text)
-BM_RapidjsonWriterCreateJson     - Writer API (create JSON text)
+RapidBuilder_CreateJson          - This builder (create JSON text)
+RapidJson_CreateJson             - Regular rapidjson API (create JSON text)
+Nlohmann_CreateJson              - Nlohmann JSON (create JSON text)
+RapidJsonWriter_CreateJson       - Writer API (create JSON text)
 
-BM_RapidbuilderCreateDocument    - This builder (create JSON object)
-BM_NlohmannCreateDocument        - Nlohmann JSON (create JSON object)
-BM_RapidjsonCreateDocument       - Regular rapidjson API (create JSON object)
+RapidBuilder_CreateDocument      - This builder (create JSON object)
+Nlohmann_CreateDocument          - Nlohmann JSON (create JSON object)
+RapidJson_CreateDocument         - Regular rapidjson API (create JSON object)
 ```
 
-### GCC 9 (Linux)
+To reproduce (median of 10 repetitions):
+
+```bash
+./bin/bench --benchmark_repetitions=10 --benchmark_report_aggregates_only=true
+```
+
+### Visual Studio 2022 (Windows)
+
+MSVC 19.44 (VS 17.14), Release, RapidJSON 1.1.0, `RAPIDJSON_SSE2` enabled.
+
+```
+2026-10-28T15:17:43+04:00
+Running bench.exe
+Run on (8 X 3110 MHz CPU s)
+CPU Caches:
+  L1 Data 48 KiB (x8)
+  L1 Instruction 64 KiB (x8)
+  L2 Unified 2560 KiB (x8)
+  L3 Unified 8192 KiB (x2)
+-----------------------------------------------------------------------------
+Benchmark                                   Time             CPU   Iterations
+-----------------------------------------------------------------------------
+RapidJsonWriter_CreateJson_median        1325 ns         1177 ns           10
+RapidBuilder_CreateJson_median           1594 ns         1378 ns           10
+RapidJson_CreateJson_median              2347 ns         1962 ns           10
+Nlohmann_CreateJson_median              10544 ns         8894 ns           10
+RapidJson_CreateDocument_median          1222 ns         1038 ns           10
+RapidBuilder_CreateDocument_median       1344 ns         1184 ns           10
+Nlohmann_CreateDocument_median           7884 ns         6975 ns           10
+```
+
+Relative to the regular RapidJSON code in the same run (CPU time):
+
+| Benchmark | Rapid Builder | Reference | Ratio |
+|---|---|---|---|
+| Create JSON text | 1378 ns | Writer API: 1177 ns | 1.17x |
+| Create JSON text | 1378 ns | Regular rapidjson API: 1962 ns | 0.70x |
+| Create JSON object | 1184 ns | Regular rapidjson API: 1038 ns | 1.14x |
+
+Rapid Builder is within 20% of the hand-written Writer and DOM code, faster than the regular rapidjson API for JSON text, and 6x faster than nlohmann/json.
+
+### Previous results (2022, before the allocation rework)
+
+#### GCC 9 (Linux)
 
 ```
 2022-01-29T14:07:48+03:00
@@ -169,7 +264,7 @@ BM_NlohmannCreateDocument           3333 ns         3299 ns       203636
 BM_RapidjsonCreateDocument           180 ns          180 ns      3733333
 ```
 
-### Visual Studio 2019 (Windows)
+#### Visual Studio 2019 (Windows)
 
 ```
 2022-01-29T14:10:11+03:00
@@ -210,7 +305,7 @@ make
 
 ## Usage
 
-Simply copy `builder.h` and `builder.cpp` into your project.
+Simply copy `builder.h` and `builder.cpp` into your project. Requires RapidJSON 1.1.0 or later.
 
 ---
 
